@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: argon-like-blog
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: NODE_ENV
+        value: production
+      - key: PGSSL
+        value: true
+      - key: MAX_UPLOAD_MB
+        value: 5
