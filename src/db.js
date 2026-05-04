@@ -11,10 +11,7 @@ const hasPostgres = Boolean(process.env.DATABASE_URL);
 let pool;
 let store;
 
-const RESERVED_SLUGS = new Set([
-  'api', 'admin', 'admin.html', 'archive', 'category', 'tag', 'search', 'uploads',
-  'login', 'logout', 'settings', 'comments', 'pages', 'posts', 'assets', 'favicon.ico'
-]);
+const RESERVED_SLUGS = new Set(['api', 'admin', 'admin.html', 'archive', 'category', 'tag', 'search', 'login', 'logout', 'assets', 'uploads', 'css', 'js', 'images']);
 
 function nowISO() {
   return new Date().toISOString();
@@ -103,8 +100,12 @@ function slugBase(input) {
   return s || `post-${Date.now()}`;
 }
 
+function avoidReservedSlug(slug) {
+  return RESERVED_SLUGS.has(slug) ? `${slug}-page` : slug;
+}
+
 export function createSlug(input) {
-  return slugBase(input);
+  return avoidReservedSlug(slugBase(input));
 }
 
 function convertPlaceholders(sql) {
@@ -311,7 +312,7 @@ async function insertSeedPost(p) {
     content: p.content,
     cover: p.cover,
     category: p.category,
-    tags: p.tags,
+    tags: normalizeTags(p.tags),
     status: 'published',
     views: Math.floor(Math.random() * 200),
     created_at: nowISO(),
@@ -429,7 +430,7 @@ export async function updateSettingsObject(data) {
   if (hasPostgres) {
     for (const key of allowed) {
       if (Object.prototype.hasOwnProperty.call(data, key)) {
-        await pgRun('UPDATE settings SET value = ? WHERE key = ?', [String(data[key] ?? ''), key]);
+        await updateSettingKey(key, String(data[key] ?? ''));
       }
     }
     return getSettingsObject();
@@ -573,8 +574,8 @@ export async function findUser(username) {
 }
 
 async function ensureUniqueSlug(base, ignoreId = null) {
-  const root = slugBase(base);
-  let slug = RESERVED_SLUGS.has(root) ? `${root}-post` : root;
+  const baseSlug = avoidReservedSlug(slugBase(base));
+  let slug = baseSlug;
   let i = 2;
   while (true) {
     const existingPost = hasPostgres
@@ -583,8 +584,9 @@ async function ensureUniqueSlug(base, ignoreId = null) {
     const existingPage = hasPostgres
       ? await pgGet('SELECT id FROM pages WHERE slug = ?', [slug])
       : store.pages.find(p => p.slug === slug);
-    if ((!existingPost || String(existingPost.id) === String(ignoreId)) && !existingPage) return slug;
-    slug = `${root}-${i++}`;
+    const samePost = existingPost && String(existingPost.id) === String(ignoreId);
+    if ((!existingPost || samePost) && !existingPage) return slug;
+    slug = `${baseSlug}-${i++}`;
   }
 }
 
@@ -659,8 +661,8 @@ export async function deletePost(id) {
 
 
 async function ensureUniquePageSlug(base, ignoreId = null) {
-  const root = slugBase(base);
-  let slug = RESERVED_SLUGS.has(root) ? `${root}-page` : root;
+  const baseSlug = avoidReservedSlug(slugBase(base));
+  let slug = baseSlug;
   let i = 2;
   while (true) {
     const existingPage = hasPostgres
@@ -669,8 +671,9 @@ async function ensureUniquePageSlug(base, ignoreId = null) {
     const existingPost = hasPostgres
       ? await pgGet('SELECT id FROM posts WHERE slug = ?', [slug])
       : store.posts.find(p => p.slug === slug);
-    if ((!existingPage || String(existingPage.id) === String(ignoreId)) && !existingPost) return slug;
-    slug = `${root}-${i++}`;
+    const samePage = existingPage && String(existingPage.id) === String(ignoreId);
+    if ((!existingPage || samePage) && !existingPost) return slug;
+    slug = `${baseSlug}-${i++}`;
   }
 }
 

@@ -43,6 +43,14 @@ const ADMIN_PATH_ALT = ADMIN_PATH.endsWith('/') ? ADMIN_PATH.slice(0, -1) : `${A
 const ADMIN_HTML_FILE = path.join(__dirname, '../private/admin.html');
 const DESKTOP_HTML_FILE = path.join(__dirname, '../public/index.html');
 const MOBILE_HTML_FILE = path.join(__dirname, '../public/mobile.html');
+const commentRateMap = new Map();
+
+class HttpError extends Error {
+  constructor(message, status = 400) {
+    super(message);
+    this.status = status;
+  }
+}
 
 function isMobileUserAgent(req) {
   const ua = String(req.headers['user-agent'] || '').toLowerCase();
@@ -102,34 +110,6 @@ function safeString(value, max = 20000) {
   return String(value ?? '').trim().slice(0, max);
 }
 
-function badRequest(message) {
-  const err = new Error(message);
-  err.status = 400;
-  return err;
-}
-
-const commentRateBuckets = new Map();
-function getClientIp(req) {
-  return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
-}
-function checkCommentRate(req) {
-  const key = getClientIp(req);
-  const now = Date.now();
-  const windowMs = 10 * 60 * 1000;
-  const maxCount = 8;
-  const bucket = (commentRateBuckets.get(key) || []).filter(t => now - t < windowMs);
-  if (bucket.length >= maxCount) throw badRequest('评论提交太频繁，请稍后再试');
-  bucket.push(now);
-  commentRateBuckets.set(key, bucket);
-  if (commentRateBuckets.size > 1000) {
-    for (const [ip, times] of commentRateBuckets.entries()) {
-      const live = times.filter(t => now - t < windowMs);
-      if (live.length) commentRateBuckets.set(ip, live);
-      else commentRateBuckets.delete(ip);
-    }
-  }
-}
-
 function makeCaptcha() {
   const a = Math.floor(Math.random() * 8) + 2;
   const b = Math.floor(Math.random() * 8) + 2;
@@ -143,18 +123,29 @@ function makeCaptcha() {
 }
 
 function verifyCaptcha(token, answer) {
-  if (!token || answer == null) throw badRequest('请先完成验证码');
+  if (!token || answer == null) throw new HttpError('请先完成验证码', 400);
   let payload;
   try {
     payload = jwt.verify(String(token), JWT_SECRET);
   } catch {
-    throw badRequest('验证码已过期，请刷新验证码');
+    throw new HttpError('验证码已过期，请刷新验证码', 400);
   }
-  if (payload?.type !== 'comment-captcha') throw badRequest('验证码无效，请刷新验证码');
+  if (payload?.type !== 'comment-captcha') throw new HttpError('验证码无效，请刷新验证码', 400);
   const normalized = String(answer).trim();
   if (!/^\d+$/.test(normalized) || Number(normalized) !== Number(payload.answer)) {
-    throw badRequest('验证码错误，请重新输入');
+    throw new HttpError('验证码错误，请重新输入', 400);
   }
+}
+
+function checkCommentRate(req) {
+  const key = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  const now = Date.now();
+  const windowMs = 60 * 1000;
+  const maxCount = 5;
+  const history = (commentRateMap.get(key) || []).filter(ts => now - ts < windowMs);
+  if (history.length >= maxCount) throw new HttpError('评论太频繁，请稍后再试', 429);
+  history.push(now);
+  commentRateMap.set(key, history);
 }
 
 app.use(helmet({
@@ -175,40 +166,15 @@ app.get([ADMIN_PATH, ADMIN_PATH_ALT], (req, res) => {
 app.get(['/', '/index.html'], serveFrontEntry);
 
 app.use(express.static(path.join(__dirname, '../public'), {
-  maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0
+  maxAge: 0
 }));
-
-app.use('/api', (req, res, next) => {
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  next();
-});
 
 app.get('/api/health', async (req, res) => {
   res.json({ ok: true, time: new Date().toISOString(), adminPathConfigured: true });
 });
 
-app.get('/api/admin/diagnostics', requireAuth, async (req, res) => {
-  res.json({
-    ok: true,
-    time: new Date().toISOString(),
-    node: process.version,
-    env: process.env.NODE_ENV || 'development',
-    database: process.env.DATABASE_URL ? 'postgres' : 'json-local',
-    storageProvider: (process.env.STORAGE_PROVIDER || (process.env.SUPABASE_URL && process.env.SUPABASE_BUCKET ? 'supabase' : 'local')).toLowerCase(),
-    storage: {
-      supabaseUrl: Boolean(process.env.SUPABASE_URL),
-      supabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      supabaseBucket: process.env.SUPABASE_BUCKET || '',
-      r2Configured: Boolean(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET),
-      maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 5)
-    },
-    adminPath: ADMIN_PATH
-  });
-});
-
 app.get('/api/site', async (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   try {
     const [settings, counts, taxonomies] = await Promise.all([getSettingsObject(), getCounts(), listTaxonomies()]);
     res.json({ settings, counts, taxonomies });
@@ -266,8 +232,8 @@ app.post('/api/comments', async (req, res, next) => {
     const email = safeString(req.body.email, 100);
     const content = safeString(req.body.content, 1000);
     const post_id = Number(req.body.post_id);
-    verifyCaptcha(req.body.captcha_token, req.body.captcha_answer);
     checkCommentRate(req);
+    verifyCaptcha(req.body.captcha_token, req.body.captcha_answer);
     if (!post_id || !name || !content) return res.status(400).json({ error: '昵称和评论内容不能为空' });
     const comments = await createComment({ post_id, name, email, content });
     res.json({ comments });
@@ -391,6 +357,25 @@ app.delete('/api/admin/comments/:id', requireAuth, async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+
+app.get('/api/admin/system', requireAuth, async (req, res) => {
+  const hasValue = value => Boolean(String(value || '').trim());
+  res.json({
+    system: {
+      node_version: process.version,
+      environment: process.env.NODE_ENV || 'development',
+      database: hasValue(process.env.DATABASE_URL) ? 'PostgreSQL / Supabase' : '本地 JSON，仅建议本地测试',
+      storage_provider: process.env.STORAGE_PROVIDER || 'local',
+      supabase_url_configured: hasValue(process.env.SUPABASE_URL),
+      supabase_service_role_configured: hasValue(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      supabase_bucket: process.env.SUPABASE_BUCKET || '',
+      max_upload_mb: Number(process.env.MAX_UPLOAD_MB || 5),
+      admin_path_configured: ADMIN_PATH,
+      package_runtime: 'Node 20.18.1 + pnpm recommended'
+    }
+  });
+});
+
 app.get('/api/admin/settings', requireAuth, async (req, res, next) => {
   try {
     res.json({ settings: await getSettingsObject() });
@@ -413,11 +398,8 @@ app.get('*', (req, res, next) => {
 
 app.use((err, req, res, next) => {
   console.error(err);
-  const msg = String(err.message || '服务器错误');
-  const validationHints = ['不能为空', '不存在', '验证码', '只支持', '没有收到', '太大', '无效', '已过期', '错误', '频繁'];
-  const inferredStatus = validationHints.some(h => msg.includes(h)) ? 400 : 500;
-  const status = Number(err.status || err.statusCode || inferredStatus);
-  res.status(status >= 400 && status < 600 ? status : 500).json({ error: msg });
+  const status = Number(err.status || err.statusCode || 500);
+  res.status(status >= 400 && status < 600 ? status : 500).json({ error: err.message || '服务器错误' });
 });
 
 await initDb();
