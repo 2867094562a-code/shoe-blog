@@ -59,7 +59,7 @@ function bindVisibilityToggles() {
     moduleVisibilityState[input.dataset.visibleModule] = input.checked;
     syncModuleVisibilityInput();
     markDirty();
-    scheduleSettingsHomePreview();
+    renderSettingsHomePreviewFast?.();
   }));
 }
 function isPreviewModuleVisible(key) { return moduleVisibilityState[key] !== false; }
@@ -94,21 +94,15 @@ function updateScrollProgress() { const progress = $('#scrollProgress'); const m
 function bindMouseAura() { const aura = $('#mouseAura'); if (!aura) return; window.addEventListener('pointermove', e => { document.body.classList.add('motion-ready'); aura.style.transform = `translate3d(${e.clientX - 180}px, ${e.clientY - 180}px, 0) scale(1)`; }, { passive: true }); window.addEventListener('scroll', updateScrollProgress, { passive: true }); updateScrollProgress(); }
 function observeReveal() { if (!('IntersectionObserver' in window)) { $$('.reveal-up').forEach(el => el.classList.add('in-view')); return; } const io = new IntersectionObserver(entries => { entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('in-view'); io.unobserve(entry.target); } }); }, { threshold: 0.12 }); $$('.reveal-up').forEach(el => { if (!el.classList.contains('in-view')) io.observe(el); }); }
 function initTheme() { const saved = localStorage.getItem('theme') || 'light'; document.documentElement.classList.toggle('dark', saved === 'dark'); $('#themeBtn').textContent = saved === 'dark' ? '☀️' : '🌙'; $('#themeBtn').addEventListener('click', () => { const dark = !document.documentElement.classList.contains('dark'); document.documentElement.classList.toggle('dark', dark); localStorage.setItem('theme', dark ? 'dark' : 'light'); $('#themeBtn').textContent = dark ? '☀️' : '🌙'; }); }
-function switchTab(name) {
-  $$('[data-admin-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminTab === name));
-  $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name));
-  if (name === 'comments') loadComments();
-  if (name === 'diagnostics') loadDiagnostics();
-  showIsland(name === 'posts' ? '文章管理' : name === 'pages' ? '页面管理' : name === 'comments' ? '评论管理' : name === 'diagnostics' ? '系统检查' : '站点设置');
-}
+function switchTab(name) { $$('[data-admin-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminTab === name)); $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name)); if (name === 'comments') loadComments(); if (name === 'system') loadSystemCheck(); showIsland(name === 'posts' ? '文章管理' : name === 'pages' ? '页面管理' : name === 'comments' ? '评论管理' : name === 'system' ? '系统检查' : '站点设置'); }
 function showAdmin() { loginPanel.classList.add('hidden'); adminPanel.classList.remove('hidden'); $('#logoutBtn').classList.remove('hidden'); }
 function showLogin() { loginPanel.classList.remove('hidden'); adminPanel.classList.add('hidden'); $('#logoutBtn').classList.add('hidden'); }
 
 
 function parseEmbedAttrs(input = '') { const attrs = {}; String(input).replace(/(\w+)=("[^"]*"|'[^']*'|[^\s\]]+)/g, (_, key, value) => { attrs[key] = String(value || '').replace(/^['"]|['"]$/g, '').trim(); return ''; }); return attrs; }
-function safeEmbedUrl(url = '') { const raw = String(url || '').trim(); if (!raw) return ''; if (/^https?:\/\//i.test(raw)) return raw; if (/^\/\//.test(raw)) return `https:${raw}`; return ''; }
+function safeEmbedUrl(url = '') { let raw = String(url || '').trim(); if (!raw) return ''; if (/^\/\//.test(raw)) raw = `https:${raw}`; if (!/^https?:\/\//i.test(raw)) return ''; try { const parsed = new URL(raw); ['autoplay', 'autoPlay', 'auto_play', 'muted'].forEach(key => parsed.searchParams.delete(key)); if (/youtube\.com|youtu\.be|bilibili\.com/i.test(parsed.hostname)) parsed.searchParams.set('autoplay', '0'); return parsed.toString(); } catch { return raw.replace(/([?&])autoplay=1/ig, '$1autoplay=0').replace(/([?&])auto_?play=1/ig, '$1autoplay=0'); } }
 function ratioToPadding(ratio = '16:9') { const [w, h] = String(ratio || '16:9').split(':').map(Number); if (!w || !h) return '56.25%'; return `${Math.min(160, Math.max(20, (h / w) * 100)).toFixed(4)}%`; }
-function videoEmbedHtml(src = '', title = '外部视频', ratio = '16:9', className = '') { const safe = safeEmbedUrl(src); if (!safe) return ''; const extraClass = String(className || '').trim().replace(/[^a-zA-Z0-9_\- ]/g, ''); return `<figure class="video-embed card ${escapeHtml(extraClass)}" style="--video-ratio:${ratioToPadding(ratio)}"><div class="video-frame"><iframe src="${escapeHtml(safe)}" title="${escapeHtml(title || '外部视频')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${title ? `<figcaption>${escapeHtml(title)}</figcaption>` : ''}</figure>`; }
+function videoEmbedHtml(src = '', title = '外部视频', ratio = '16:9', className = '') { const safe = safeEmbedUrl(src); if (!safe) return ''; const extraClass = String(className || '').trim().replace(/[^a-zA-Z0-9_\- ]/g, ''); return `<figure class="video-embed card ${escapeHtml(extraClass)}" style="--video-ratio:${ratioToPadding(ratio)}"><div class="video-frame"><iframe src="${escapeHtml(safe)}" title="${escapeHtml(title || '外部视频')}" loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${title ? `<figcaption>${escapeHtml(title)}</figcaption>` : ''}</figure>`; }
 function renderVideoLine(line = '') { const trimmed = line.trim(); if (!trimmed) return ''; if (trimmed.startsWith('::video ')) { const body = trimmed.replace(/^::video\s+/, ''); const parts = body.split(/\s+/); const src = parts.shift(); const attrs = parseEmbedAttrs(body); return videoEmbedHtml(attrs.src || src, attrs.title || '外部视频', attrs.ratio || '16:9', attrs.class || attrs.className || ''); } const shortMatch = trimmed.match(/^\[(?:video|iframe)\s+([^\]]+)\]$/i); if (shortMatch) { const attrs = parseEmbedAttrs(shortMatch[1]); return videoEmbedHtml(attrs.src || attrs.url, attrs.title || '外部视频', attrs.ratio || '16:9', attrs.class || attrs.className || ''); } const iframeSrc = trimmed.match(/^<iframe\b[^>]*\bsrc=["']([^"']+)["'][\s\S]*<\/iframe>$/i); if (iframeSrc) return videoEmbedHtml(iframeSrc[1], '外部视频', '16:9'); return ''; }
 
 function readAttr(attrs = {}, key = '', fallback = '') { const value = attrs[key]; return value == null ? fallback : String(value); }
@@ -572,6 +566,35 @@ async function removeComment(id) {
     $('#commentAdminMsg').textContent = err.message;
   }
 }
+
+async function loadSystemCheck() {
+  const wrap = $('#systemCheckTable');
+  const msg = $('#systemCheckMsg');
+  if (!wrap) return;
+  try {
+    if (msg) msg.textContent = '正在检查...';
+    const data = await api('/api/admin/system');
+    const system = data.system || {};
+    const rows = [
+      ['Node 版本', system.node_version || '-'],
+      ['运行环境', system.environment || '-'],
+      ['数据库', system.database || '-'],
+      ['图片存储', system.storage_provider || '-'],
+      ['Supabase URL', system.supabase_url_configured ? '已配置' : '未配置'],
+      ['Service Role Key', system.supabase_service_role_configured ? '已配置' : '未配置'],
+      ['图片桶', system.supabase_bucket || '-'],
+      ['上传上限', `${system.max_upload_mb || 5} MB`],
+      ['后台入口', system.admin_path_configured || '-'],
+      ['推荐运行时', system.package_runtime || '-']
+    ];
+    wrap.innerHTML = rows.map(([k, v]) => `<div class="system-check-item card-lite"><small>${escapeHtml(k)}</small><b>${escapeHtml(v)}</b></div>`).join('');
+    if (msg) msg.textContent = '检查完成。';
+  } catch (err) {
+    wrap.innerHTML = '<p class="muted">系统检查加载失败。</p>';
+    if (msg) msg.textContent = err.message;
+  }
+}
+
 function resetPageForm() { pageForm.reset(); pageForm.id.value = ''; pageForm.sort_order.value = '0'; setBlocksFromMarkdown('page', ''); $('#pageEditorTitle').textContent = '新建页面'; $('#pageMsg').textContent = ''; renderPagePreview(); }
 async function savePage(e) { e.preventDefault(); syncBlocksToContent('page'); const data = formDataToObject(pageForm); const id = data.id; delete data.id; try { if (id) { await api(`/api/admin/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已更新。'; } else { await api('/api/admin/pages', { method: 'POST', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已创建。'; resetPageForm(); } await loadPages(); await loadSettings(); markSaved(); showIsland('页面已保存'); } catch (err) { $('#pageMsg').textContent = err.message; } }
 
@@ -584,7 +607,7 @@ async function handlePageContentUpload() { const msg = $('#pageContentUploadMsg'
 async function handleAvatarUpload() { const msg = $('#avatarUploadMsg'); try { settingsForm.author_avatar.value = await uploadImage($('#avatarUpload'), msg, 'avatars'); } catch (err) { msg.textContent = err.message; } }
 async function handleLogoUpload() { const msg = $('#logoUploadMsg'); try { settingsForm.logo_url.value = await uploadImage($('#logoUpload'), msg, 'logos'); } catch (err) { msg.textContent = err.message; } }
 
-async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) settingsForm.elements[key].value = value; moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); scheduleSettingsHomePreview(); initTiltCards(document); }
+async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) settingsForm.elements[key].value = value; moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); renderSettingsHomePreviewFast?.(); initTiltCards(document); }
 async function saveSettings(e) { e.preventDefault(); try { syncHomeCardsInput(); syncTaxonomyInputs(); syncModuleVisibilityInput(); Object.keys(LIST_CONFIG).forEach(syncListInput); const saved = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(formDataToObject(settingsForm)) }); $('#settingsMsg').textContent = '设置已保存。前台刷新后会读取最新设置；已对接口禁用缓存。'; if (saved?.settings) { moduleVisibilityState = parseModuleVisibility(saved.settings.module_visibility); renderVisibilityToggles(); } markSaved(); showIsland('站点设置已保存'); } catch (err) { $('#settingsMsg').textContent = err.message; } }
 
 $('#loginForm').addEventListener('submit', async e => { e.preventDefault(); $('#loginMsg').textContent = ''; try { await api('/api/auth/login', { method: 'POST', body: JSON.stringify(formDataToObject(e.target)) }); await checkLogin(); } catch (err) { $('#loginMsg').textContent = err.message; } });
@@ -598,7 +621,7 @@ $('#insertPostVideoBtn')?.addEventListener('click', () => addBlock('post', 'vide
 $('#coverUploadBtn')?.addEventListener('click', handleCoverUpload); $('#contentUploadBtn')?.addEventListener('click', handleContentUpload); $('#pageCoverUploadBtn')?.addEventListener('click', handlePageCoverUpload); $('#pageContentUploadBtn')?.addEventListener('click', handlePageContentUpload); $('#avatarUploadBtn')?.addEventListener('click', handleAvatarUpload); $('#logoUploadBtn')?.addEventListener('click', handleLogoUpload);
 $('#addHomeCardBtn')?.addEventListener('click', addHomeCard); $('#addHeaderNavBtn')?.addEventListener('click', () => addListItem('header_nav_links')); $('#addNavLinkBtn')?.addEventListener('click', () => addListItem('nav_links')); $('#addProjectCardBtn')?.addEventListener('click', () => addListItem('project_cards')); $('#addFriendLinkBtn')?.addEventListener('click', () => addListItem('friend_links')); $('#addMusicBtn')?.addEventListener('click', () => addListItem('music_playlist'));
 $('#refreshCommentsBtn')?.addEventListener('click', () => loadComments());
-$('#refreshDiagnosticsBtn')?.addEventListener('click', () => loadDiagnostics());
+$('#refreshSystemBtn')?.addEventListener('click', () => loadSystemCheck());
 $('#commentSearchInput')?.addEventListener('input', renderCommentTable);
 settingsForm?.addEventListener('input', applyPreviewCustomStyles);
 settingsForm?.addEventListener('submit', saveSettings);
@@ -712,14 +735,9 @@ function renderSettingsHomePreview() {
     </div>`;
 }
 
-function scheduleSettingsHomePreview() {
-  window.clearTimeout(window.__settingsPreviewTimer);
-  window.__settingsPreviewTimer = window.setTimeout(() => {
-    try { renderSettingsHomePreview(); } catch (err) { console.warn('settings preview failed', err); }
-  }, 100);
-}
-settingsForm?.addEventListener('input', () => { markDirty(); scheduleSettingsHomePreview(); });
-settingsForm?.addEventListener('change', () => { markDirty(); scheduleSettingsHomePreview(); });
+const renderSettingsHomePreviewFast = debounce(() => renderSettingsHomePreview(), 100);
+settingsForm?.addEventListener('input', () => { markDirty(); renderSettingsHomePreviewFast(); });
+settingsForm?.addEventListener('change', () => { markDirty(); renderSettingsHomePreviewFast(); });
 settingsForm?.addEventListener('click', () => setTimeout(renderSettingsHomePreview, 0));
 
 // 追加到原有加载流程之后，避免影响文章 / 页面编辑器初始化。

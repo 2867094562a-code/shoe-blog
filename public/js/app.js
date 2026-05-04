@@ -57,14 +57,6 @@ function parseModuleVisibility(value) {
 }
 function isModuleVisible(key) { return moduleVisibility[key] !== false; }
 function toggleEl(el, visible = true) { if (el) el.classList.toggle('hidden', !visible); }
-function closestAny(el, selectors = []) {
-  if (!el) return null;
-  for (const selector of selectors) {
-    const found = el.closest(selector);
-    if (found) return found;
-  }
-  return null;
-}
 function applyModuleVisibility(settings = {}) {
   moduleVisibility = parseModuleVisibility(settings.module_visibility);
   toggleEl($('#headerNavLinks'), isModuleVisible('header_nav'));
@@ -75,10 +67,10 @@ function applyModuleVisibility(settings = {}) {
   toggleEl($('#featureGrid'), isModuleVisible('feature_cards'));
   toggleEl($('#projectShowcase'), isModuleVisible('project_showcase'));
   toggleEl($('#friendLinks'), isModuleVisible('friend_links'));
-  toggleEl(closestAny($('#authorName'), ['.profile-card', '.mobile-profile-strip']), isModuleVisible('profile_card'));
-  toggleEl(closestAny($('#categoryList'), ['.side-card', '.mobile-category-card', '.mobile-taxonomy']), isModuleVisible('categories'));
-  toggleEl(closestAny($('#tagList'), ['.side-card', '.mobile-tag-card', '.mobile-taxonomy']), isModuleVisible('tags'));
-  toggleEl(closestAny($('#quickNavList'), ['.side-card', '.mobile-quick']), isModuleVisible('quick_nav'));
+  toggleEl($('#authorName')?.closest('.profile-card'), isModuleVisible('profile_card'));
+  toggleEl($('#categoryList')?.closest('.side-card'), isModuleVisible('categories'));
+  toggleEl($('#tagList')?.closest('.side-card'), isModuleVisible('tags'));
+  toggleEl($('#quickNavList')?.closest('.side-card'), isModuleVisible('quick_nav'));
   toggleEl($('#musicPlayer'), isModuleVisible('music_player'));
   toggleEl($('#footerText'), isModuleVisible('footer'));
 }
@@ -135,11 +127,20 @@ function parseEmbedAttrs(input = '') {
   return attrs;
 }
 function safeEmbedUrl(url = '') {
-  const raw = String(url || '').trim();
+  let raw = String(url || '').trim();
   if (!raw) return '';
-  if (/^https?:\/\//i.test(raw)) return raw;
-  if (/^\/\//.test(raw)) return `https:${raw}`;
-  return '';
+  if (/^\/\//.test(raw)) raw = `https:${raw}`;
+  if (!/^https?:\/\//i.test(raw)) return '';
+  try {
+    const parsed = new URL(raw);
+    ['autoplay', 'autoPlay', 'auto_play', 'muted'].forEach(key => parsed.searchParams.delete(key));
+    if (/youtube\.com|youtu\.be|bilibili\.com/i.test(parsed.hostname)) parsed.searchParams.set('autoplay', '0');
+    return parsed.toString();
+  } catch {
+    return raw
+      .replace(/([?&])autoplay=1/ig, '$1autoplay=0')
+      .replace(/([?&])auto_?play=1/ig, '$1autoplay=0');
+  }
 }
 function ratioToPadding(ratio = '16:9') {
   const [w, h] = String(ratio || '16:9').split(':').map(Number);
@@ -150,7 +151,7 @@ function videoEmbedHtml(src = '', title = '外部视频', ratio = '16:9', classN
   const safe = safeEmbedUrl(src);
   if (!safe) return '';
   const extraClass = String(className || '').trim().replace(/[^a-zA-Z0-9_\- ]/g, '');
-  return `<figure class="video-embed card tilt-card ${escapeHtml(extraClass)}" data-tilt-strength="3" data-tilt-move="2" style="--video-ratio:${ratioToPadding(ratio)}"><div class="video-frame"><iframe src="${escapeHtml(safe)}" title="${escapeHtml(title || '外部视频')}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${title ? `<figcaption>${escapeHtml(title)}</figcaption>` : ''}</figure>`;
+  return `<figure class="video-embed card tilt-card ${escapeHtml(extraClass)}" data-tilt-strength="3" data-tilt-move="2" style="--video-ratio:${ratioToPadding(ratio)}"><div class="video-frame"><iframe src="${escapeHtml(safe)}" title="${escapeHtml(title || '外部视频')}" loading="lazy" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>${title ? `<figcaption>${escapeHtml(title)}</figcaption>` : ''}</figure>`;
 }
 function renderVideoLine(line = '') {
   const trimmed = line.trim();
@@ -388,9 +389,8 @@ function renderHeaderNav(items = []) {
 function renderQuickNav(items = []) {
   const wrap = $('#quickNavList');
   if (!wrap) return;
-  const box = closestAny(wrap, ['.side-card', '.mobile-quick']);
-  if (!isModuleVisible('quick_nav')) { wrap.innerHTML = ''; toggleEl(box, false); return; }
-  toggleEl(box, true);
+  if (!isModuleVisible('quick_nav')) { wrap.innerHTML = ''; toggleEl(wrap.closest('.side-card'), false); return; }
+  toggleEl(wrap.closest('.side-card'), true);
   const links = items.length ? items : defaultNavLinks();
   wrap.innerHTML = links.map(item => `<a class="quick-nav-item tilt-card" data-tilt-strength="6" data-tilt-move="3" href="${escapeHtml(normalizeLink(item.link))}"><span>${escapeHtml(item.icon || '🔗')}</span><b>${escapeHtml(item.title || '未命名')}</b><small>${escapeHtml(item.desc || '')}</small></a>`).join('');
 }
@@ -488,13 +488,11 @@ function renderTaxonomies(tax) {
   const catWrap = $('#categoryList');
   const tagWrap = $('#tagList');
   if (catWrap) {
-    const catBox = closestAny(catWrap, ['.side-card', '.mobile-category-card', '.mobile-taxonomy']);
-    toggleEl(catBox, isModuleVisible('categories'));
+    toggleEl(catWrap.closest('.side-card'), isModuleVisible('categories'));
     catWrap.innerHTML = isModuleVisible('categories') ? (tax.categories?.length ? tax.categories.map(c => `<a class="chip" href="${categoryHref(c.name)}">${escapeHtml(c.name)} <small>${c.count}</small></a>`).join('') : '暂无分类') : '';
   }
   if (tagWrap) {
-    const tagBox = closestAny(tagWrap, ['.side-card', '.mobile-tag-card', '.mobile-taxonomy']);
-    toggleEl(tagBox, isModuleVisible('tags'));
+    toggleEl(tagWrap.closest('.side-card'), isModuleVisible('tags'));
     tagWrap.innerHTML = isModuleVisible('tags') ? (tax.tags?.length ? tax.tags.map(t => `<a class="chip" href="${tagHref(t.name)}">${escapeHtml(tagLabel(t.name))} <small>${t.count}</small></a>`).join('') : '暂无标签') : '';
   }
 }
