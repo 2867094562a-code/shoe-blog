@@ -538,6 +538,9 @@ function addBlock(kind, type, data = {}) {
   editor.blocks.splice(insertAt, 0, block);
   editor.activeIndex = insertAt;
   renderBlockEditor(kind);
+  const insertedEl = document.querySelector(`${editor.list} [data-block-index="${insertAt}"]`);
+  insertedEl?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  insertedEl?.querySelector('textarea,input,select')?.focus?.({ preventScroll: true });
   setTimeout(() => { if (editor.blocks[insertAt]) delete editor.blocks[insertAt].justAdded; }, 900);
   blockEditorChanged(kind, { immediate: true });
   showIsland(`${({ image: '图片', video: '视频', quote: '引用', callout: '提示卡', button: '按钮', divider: '分割线', gallery: '画廊', text: '文字' }[type] || '文字')}模块已插入`);
@@ -546,7 +549,22 @@ function addBlock(kind, type, data = {}) {
 function initBlockEditors() {
   setBlocksFromMarkdown('post', postForm?.content?.value || '');
   setBlocksFromMarkdown('page', pageForm?.content?.value || '');
-  $$('[data-add-block]').forEach(btn => btn.addEventListener('click', () => addBlock(btn.dataset.editor, btn.dataset.addBlock)));
+  bindBlockToolbarDelegation();
+}
+
+let blockToolbarDelegationBound = false;
+function bindBlockToolbarDelegation() {
+  if (blockToolbarDelegationBound) return;
+  blockToolbarDelegationBound = true;
+  document.addEventListener('click', e => {
+    const btn = e.target.closest('[data-add-block]');
+    if (!btn) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const kind = btn.dataset.editor || 'post';
+    const type = btn.dataset.addBlock || 'text';
+    addBlock(kind, type);
+  });
 }
 
 function updateSummary() { const published = posts.filter(p => p.status === 'published').length; const postDrafts = posts.filter(p => p.status !== 'published').length; const pageDrafts = pages.filter(p => p.status !== 'published').length; $('#summaryPosts').textContent = String(posts.length); $('#summaryPublished').textContent = String(published); $('#summaryPages').textContent = String(pages.length); $('#summaryDrafts').textContent = String(postDrafts + pageDrafts); }

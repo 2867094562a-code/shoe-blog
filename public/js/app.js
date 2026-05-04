@@ -590,7 +590,23 @@ function initTiltCards(root = document) {
 function afterRender() {
   app.classList.remove('route-out'); app.classList.add('route-in'); window.setTimeout(() => app.classList.remove('route-in'), 520); observeReveal(app); initTiltCards(app);
 }
-async function transitionTo(renderFn) { app.classList.add('route-out'); await new Promise(resolve => setTimeout(resolve, 120)); await renderFn(); }
+function scrollToMainContent({ smooth = true } = {}) {
+  requestAnimationFrame(() => {
+    const target = document.querySelector('#app') || document.querySelector('.mobile-content') || document.body;
+    const header = document.querySelector('.topbar') || document.querySelector('.mobile-topbar');
+    const offset = (header?.offsetHeight || 0) + 14;
+    const top = Math.max(0, target.getBoundingClientRect().top + window.scrollY - offset);
+    window.scrollTo({ top, behavior: smooth ? 'smooth' : 'auto' });
+  });
+}
+
+async function transitionTo(renderFn, options = {}) {
+  app.classList.add('route-out');
+  await new Promise(resolve => setTimeout(resolve, 120));
+  await renderFn();
+  if (options.scroll === 'content') scrollToMainContent({ smooth: true });
+  else if (options.scroll === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
+}
 function cleanLegacyHash() {
   const hash = decodeURIComponent(location.hash || '');
   if (!hash.startsWith('#/')) return false;
@@ -607,16 +623,15 @@ function cleanLegacyHash() {
 async function route() {
   cleanLegacyHash();
   const path = decodeURIComponent(location.pathname || '/').replace(/\/+$/, '') || '/';
-  window.scrollTo({ top: 0, behavior: 'smooth' });
   try {
-    if (path === '/') return transitionTo(renderHome);
-    if (path === '/archive') return transitionTo(renderArchive);
-    if (path.startsWith('/category/')) return transitionTo(() => renderHome({ category: path.replace('/category/', '') }));
-    if (path.startsWith('/tag/')) return transitionTo(() => renderHome({ tag: path.replace('/tag/', '') }));
-    if (path.startsWith('/search/')) return transitionTo(() => renderHome({ search: path.replace('/search/', '') }));
+    if (path === '/') return transitionTo(renderHome, { scroll: 'top' });
+    if (path === '/archive') return transitionTo(renderArchive, { scroll: 'content' });
+    if (path.startsWith('/category/')) return transitionTo(() => renderHome({ category: path.replace('/category/', '') }), { scroll: 'content' });
+    if (path.startsWith('/tag/')) return transitionTo(() => renderHome({ tag: path.replace('/tag/', '') }), { scroll: 'content' });
+    if (path.startsWith('/search/')) return transitionTo(() => renderHome({ search: path.replace('/search/', '') }), { scroll: 'content' });
     const slug = path.replace(/^\//, '');
-    if (slug && !RESERVED.has(slug)) return transitionTo(() => renderContent(slug));
-    return transitionTo(renderHome);
+    if (slug && !RESERVED.has(slug)) return transitionTo(() => renderContent(slug), { scroll: 'content' });
+    return transitionTo(renderHome, { scroll: 'top' });
   } catch (err) {
     app.innerHTML = `<div class="card empty reveal-up in-view">${escapeHtml(err.message || '页面加载失败')}</div>`;
     showIsland('页面加载失败');
