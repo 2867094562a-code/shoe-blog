@@ -7,6 +7,8 @@ let islandTimer = null;
 let musicAudio = null;
 let musicList = [];
 let currentTrack = 0;
+const IS_MOBILE_TEMPLATE = document.documentElement.dataset.template === 'mobile' || document.body.classList.contains('mobile-template');
+const IS_TOUCH_DEVICE = window.matchMedia('(hover: none), (pointer: coarse)').matches;
 
 const RESERVED = new Set(['archive', 'category', 'tag', 'search', 'api', 'admin', 'admin.html']);
 const THEME_PRESETS = {
@@ -55,6 +57,14 @@ function parseModuleVisibility(value) {
 }
 function isModuleVisible(key) { return moduleVisibility[key] !== false; }
 function toggleEl(el, visible = true) { if (el) el.classList.toggle('hidden', !visible); }
+function closestAny(el, selectors = []) {
+  if (!el) return null;
+  for (const selector of selectors) {
+    const found = el.closest(selector);
+    if (found) return found;
+  }
+  return null;
+}
 function applyModuleVisibility(settings = {}) {
   moduleVisibility = parseModuleVisibility(settings.module_visibility);
   toggleEl($('#headerNavLinks'), isModuleVisible('header_nav'));
@@ -65,10 +75,10 @@ function applyModuleVisibility(settings = {}) {
   toggleEl($('#featureGrid'), isModuleVisible('feature_cards'));
   toggleEl($('#projectShowcase'), isModuleVisible('project_showcase'));
   toggleEl($('#friendLinks'), isModuleVisible('friend_links'));
-  toggleEl($('#authorName')?.closest('.profile-card'), isModuleVisible('profile_card'));
-  toggleEl($('#categoryList')?.closest('.side-card'), isModuleVisible('categories'));
-  toggleEl($('#tagList')?.closest('.side-card'), isModuleVisible('tags'));
-  toggleEl($('#quickNavList')?.closest('.side-card'), isModuleVisible('quick_nav'));
+  toggleEl(closestAny($('#authorName'), ['.profile-card', '.mobile-profile-strip']), isModuleVisible('profile_card'));
+  toggleEl(closestAny($('#categoryList'), ['.side-card', '.mobile-category-card', '.mobile-taxonomy']), isModuleVisible('categories'));
+  toggleEl(closestAny($('#tagList'), ['.side-card', '.mobile-tag-card', '.mobile-taxonomy']), isModuleVisible('tags'));
+  toggleEl(closestAny($('#quickNavList'), ['.side-card', '.mobile-quick']), isModuleVisible('quick_nav'));
   toggleEl($('#musicPlayer'), isModuleVisible('music_player'));
   toggleEl($('#footerText'), isModuleVisible('footer'));
 }
@@ -293,6 +303,32 @@ function normalizeTrack(item) {
   if (!title && !url) return null;
   return { title: title || '未命名音乐', artist: String(item.artist || '').trim(), url, cover: String(item.cover || '').trim() };
 }
+
+function systemPrefersDark() {
+  return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+}
+function isThemeManuallySelected() {
+  return localStorage.getItem('theme-manual') === '1';
+}
+function chooseThemeForDevice(defaultPreset = 'hyper-blue') {
+  const saved = localStorage.getItem('theme-preset');
+  if (isThemeManuallySelected() && saved && THEME_PRESETS[saved]) return saved;
+  return systemPrefersDark() ? 'night' : (THEME_PRESETS[defaultPreset] ? defaultPreset : 'hyper-blue');
+}
+function markThemeManual() {
+  localStorage.setItem('theme-manual', '1');
+}
+function bindSystemThemeListener() {
+  if (!window.matchMedia) return;
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const handler = () => {
+    if (isThemeManuallySelected()) return;
+    applyThemePreset(chooseThemeForDevice(site?.settings?.theme_preset || 'hyper-blue'), false, true);
+    showIsland(systemPrefersDark() ? '已跟随系统切换夜间模式' : '已跟随系统切换日间模式');
+  };
+  if (mq.addEventListener) mq.addEventListener('change', handler);
+  else if (mq.addListener) mq.addListener(handler);
+}
 function applyThemeInstant(key, persist = true) {
   const safeKey = THEME_PRESETS[key] ? key : 'hyper-blue';
   document.documentElement.setAttribute('data-theme-preset', safeKey);
@@ -339,7 +375,7 @@ function renderThemeMenu() {
   const menu = $('#themeMenu');
   if (!menu) return;
   menu.innerHTML = Object.entries(THEME_PRESETS).map(([key, item]) => `<button type="button" data-theme-preset="${key}"><span class="theme-swatch" style="--swatch:${item.color}"></span><span>${escapeHtml(item.name)}</span></button>`).join('');
-  $$('[data-theme-preset]', menu).forEach(btn => btn.addEventListener('click', () => { applyThemePreset(btn.dataset.themePreset, true); menu.classList.add('hidden'); }));
+  $$('[data-theme-preset]', menu).forEach(btn => btn.addEventListener('click', () => { markThemeManual(); applyThemePreset(btn.dataset.themePreset, true); menu.classList.add('hidden'); }));
 }
 function renderHeaderNav(items = []) {
   const wrap = $('#headerNavLinks');
@@ -352,8 +388,9 @@ function renderHeaderNav(items = []) {
 function renderQuickNav(items = []) {
   const wrap = $('#quickNavList');
   if (!wrap) return;
-  if (!isModuleVisible('quick_nav')) { wrap.innerHTML = ''; toggleEl(wrap.closest('.side-card'), false); return; }
-  toggleEl(wrap.closest('.side-card'), true);
+  const box = closestAny(wrap, ['.side-card', '.mobile-quick']);
+  if (!isModuleVisible('quick_nav')) { wrap.innerHTML = ''; toggleEl(box, false); return; }
+  toggleEl(box, true);
   const links = items.length ? items : defaultNavLinks();
   wrap.innerHTML = links.map(item => `<a class="quick-nav-item tilt-card" data-tilt-strength="6" data-tilt-move="3" href="${escapeHtml(normalizeLink(item.link))}"><span>${escapeHtml(item.icon || '🔗')}</span><b>${escapeHtml(item.title || '未命名')}</b><small>${escapeHtml(item.desc || '')}</small></a>`).join('');
 }
@@ -431,8 +468,8 @@ async function loadSite() {
   $('#statTags') && ($('#statTags').textContent = site.counts.tags);
   if (s.author_avatar && $('#avatar')) $('#avatar').style.backgroundImage = `url('${s.author_avatar}')`;
   applyLayoutMode(s.layout_mode || 'classic');
-  // 后台站点设置优先，避免管理员保存主题后前台因为本地缓存不更新。
-  applyThemePreset(s.theme_preset || 'hyper-blue', false, false);
+  // 默认跟随设备明暗模式：手机/电脑系统切到深色时自动使用 Night，浅色时使用后台设置的主题色。
+  applyThemePreset(chooseThemeForDevice(s.theme_preset || 'hyper-blue'), false, false);
   renderHeaderNav(parseJsonArray(s.header_nav_links, defaultHeaderNav(), normalizeHeaderNav));
   renderHomeCards(parseJsonArray(s.home_cards, defaultHomeCards()));
   renderQuickNav(parseJsonArray(s.nav_links, defaultNavLinks(), normalizeNavLink));
@@ -451,11 +488,13 @@ function renderTaxonomies(tax) {
   const catWrap = $('#categoryList');
   const tagWrap = $('#tagList');
   if (catWrap) {
-    toggleEl(catWrap.closest('.side-card'), isModuleVisible('categories'));
+    const catBox = closestAny(catWrap, ['.side-card', '.mobile-category-card', '.mobile-taxonomy']);
+    toggleEl(catBox, isModuleVisible('categories'));
     catWrap.innerHTML = isModuleVisible('categories') ? (tax.categories?.length ? tax.categories.map(c => `<a class="chip" href="${categoryHref(c.name)}">${escapeHtml(c.name)} <small>${c.count}</small></a>`).join('') : '暂无分类') : '';
   }
   if (tagWrap) {
-    toggleEl(tagWrap.closest('.side-card'), isModuleVisible('tags'));
+    const tagBox = closestAny(tagWrap, ['.side-card', '.mobile-tag-card', '.mobile-taxonomy']);
+    toggleEl(tagBox, isModuleVisible('tags'));
     tagWrap.innerHTML = isModuleVisible('tags') ? (tax.tags?.length ? tax.tags.map(t => `<a class="chip" href="${tagHref(t.name)}">${escapeHtml(tagLabel(t.name))} <small>${t.count}</small></a>`).join('') : '暂无标签') : '';
   }
 }
@@ -538,6 +577,7 @@ function observeReveal(root = document) {
   els.forEach(el => { if (!el.classList.contains('in-view')) revealObserver.observe(el); });
 }
 function initTiltCards(root = document) {
+  if (IS_TOUCH_DEVICE || IS_MOBILE_TEMPLATE) return;
   $$('.tilt-card, .card, .card-lite, .summary-card, .project-card, .friend-card, .quick-nav-item, .archive-row, .post-nav-card', root).forEach(card => {
     if (!card.classList.contains('tilt-card')) { card.classList.add('tilt-card', 'tilt-soft-card'); }
     if (card.dataset.motionBound) return;
@@ -598,18 +638,24 @@ function bindInternalLinks() {
 }
 function initTheme() {
   renderThemeMenu();
-  const savedPreset = localStorage.getItem('theme-preset') || 'hyper-blue';
-  applyThemePreset(savedPreset, false, false);
+  applyThemePreset(chooseThemeForDevice('hyper-blue'), false, false);
   $('#themePaletteBtn')?.addEventListener('click', e => { e.stopPropagation(); $('#themeMenu')?.classList.toggle('hidden'); });
   document.addEventListener('click', e => { if (!e.target.closest('#themeMenu') && !e.target.closest('#themePaletteBtn')) $('#themeMenu')?.classList.add('hidden'); });
-  $('#themeBtn')?.addEventListener('click', () => { const dark = !document.documentElement.classList.contains('dark'); applyThemePreset(dark ? 'night' : 'hyper-blue', true); });
+  $('#themeBtn')?.addEventListener('click', () => {
+    markThemeManual();
+    const dark = !document.documentElement.classList.contains('dark');
+    applyThemePreset(dark ? 'night' : (site?.settings?.theme_preset || 'hyper-blue'), true);
+  });
+  bindSystemThemeListener();
 }
 function bindHeroMotion() {
+  if (IS_TOUCH_DEVICE || IS_MOBILE_TEMPLATE) return;
   const hero = $('#heroSection'); if (!hero) return;
   hero.addEventListener('pointermove', e => { const rect = hero.getBoundingClientRect(); const x = ((e.clientX - rect.left) / rect.width - 0.5) * 2; const y = ((e.clientY - rect.top) / rect.height - 0.5) * 2; hero.style.setProperty('--mx', x.toFixed(3)); hero.style.setProperty('--my', y.toFixed(3)); });
   hero.addEventListener('pointerleave', () => { hero.style.setProperty('--mx', 0); hero.style.setProperty('--my', 0); });
 }
 function bindMouseAura() {
+  if (IS_TOUCH_DEVICE || IS_MOBILE_TEMPLATE) return;
   const aura = $('#mouseAura'); if (!aura) return;
   window.addEventListener('pointermove', e => { document.body.classList.add('motion-ready'); aura.style.transform = `translate3d(${e.clientX - 180}px, ${e.clientY - 180}px, 0) scale(1)`; }, { passive: true });
 }
