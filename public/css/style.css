@@ -1056,6 +1056,55 @@ body.theme-bg-flow[data-theme-flow="right"] { animation-name: bgFlowRight; }
 }
 
 
+
+/* v10.14 文章编辑器：分类 / 标签选项栏 */
+.taxonomy-option-wrap {
+  margin-top: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--surface-soft) 88%, transparent);
+}
+.taxonomy-option-wrap small {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+}
+.taxonomy-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 34px;
+  align-items: center;
+}
+.taxonomy-option-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  padding: 8px 11px;
+  background: color-mix(in srgb, var(--surface-strong) 92%, transparent);
+  color: var(--muted);
+  transition: transform .18s cubic-bezier(.2,.75,.25,1), border-color .18s ease, background .18s ease, color .18s ease;
+}
+.taxonomy-option-btn:hover {
+  transform: translateY(-1px);
+  color: var(--primary);
+  border-color: rgba(86,104,255,.28);
+  background: rgba(86,104,255,.08);
+}
+.taxonomy-option-btn.active {
+  color: var(--primary);
+  border-color: rgba(86,104,255,.34);
+  background: rgba(86,104,255,.13);
+  box-shadow: inset 0 0 0 1px rgba(86,104,255,.06);
+}
+.taxonomy-option-empty {
+  color: var(--muted);
+  font-size: .9rem;
+}
+
 /* v10.3 编辑器优化：模块折叠、复制、轻量动画 */
 .block-item {
   transform-origin: center top;
