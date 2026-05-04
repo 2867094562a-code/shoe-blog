@@ -1,36 +1,36 @@
 {
   "name": "argon-like-fullstack-blog",
-  "version": "1.1.0",
-  "description": "A WordPress-free Argon-style blog template with image upload, Express, Postgres/Supabase, Supabase Storage/R2 support.",
+  "version": "10.6.0",
+  "description": "A WordPress-free HyperOS style fullstack blog template with admin panel, image upload, pages, modules, clean URLs, Supabase and Render support.",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
-    "check": "node --check src/server.js && node --check src/db.js"
+    "check": "node --check src/server.js && node --check src/db.js && node --check public/js/app.js && node --check public/js/admin.js"
   },
   "keywords": [
     "blog",
     "express",
     "postgres",
-    "argon-style"
+    "supabase",
+    "hyperos"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.758.0",
+    "@supabase/supabase-js": "^2.49.1",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
-    "pg": "^8.13.1",
     "multer": "^1.4.5-lts.1",
-    "@supabase/supabase-js": "^2.49.1",
-    "@aws-sdk/client-s3": "^3.758.0"
+    "pg": "^8.13.1"
   },
   "engines": {
-  "node": "20.18.1",
-  "npm": "10.8.2"
-}
+    "node": "20.18.1",
+    "npm": "10.8.2"
   }
 }
