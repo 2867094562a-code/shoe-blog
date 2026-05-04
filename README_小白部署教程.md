@@ -1816,30 +1816,3 @@ Ctrl + F5
 ```
 
 如果仍然不变，检查是否部署平台还在跑旧版本，或者 Render 是否需要重新部署。
-
----
-
-## V10.9 最终版提醒
-
-这版已经把以下容易出问题的地方做了收尾修复：
-
-- 手机模板的分类、标签、快捷导航、作者卡片会跟随后台模块开关显示 / 隐藏。
-- 文章和页面的自定义链接会互相避让，不会出现同一个链接同时被文章和页面占用。
-- `/api`、`/archive`、`/category`、`/tag`、`/search`、`/uploads` 等系统路径不会被文章 / 页面占用。
-- 后台新增“系统检查”页，可以检查 Supabase、数据库、上传配置是否存在。
-- 评论验证码错误现在按正常表单错误处理，并加入了简单评论频率限制。
-- Render 配置已改成 pnpm 构建，避免 npm 在 Render 上偶发 `Exit handler never called`。
-
-Render 继续使用：
-
-```bash
-Build Command:
-npm install -g pnpm@9.12.3 && pnpm install --no-frozen-lockfile
-```
-
-```bash
-Start Command:
-node src/server.js
-```
-
-如果你之前仓库里还有 `package-lock.json`，建议在 GitHub 里删除它，避免以后误用 `npm ci`。
