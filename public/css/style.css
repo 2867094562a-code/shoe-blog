@@ -1319,3 +1319,61 @@ body.theme-bg-flow[data-theme-flow="right"] { animation-name: bgFlowRight; }
 @media (max-width: 640px) {
   .visibility-toggle-grid { grid-template-columns: 1fr; }
 }
+
+/* v10.7 评论管理 + 评论验证码 */
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(120px, 180px) auto;
+  gap: 12px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm, 16px);
+  background: color-mix(in srgb, var(--surface-strong, #fff) 82%, transparent);
+}
+.captcha-question {
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+.captcha-question b {
+  color: var(--text);
+  font-size: 1.1rem;
+  letter-spacing: .04em;
+}
+.captcha-answer { margin: 0; }
+.comment-admin-tools {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin: 16px 0;
+}
+.comment-admin-list { gap: 12px; }
+.admin-comment-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+}
+.comment-row-main p {
+  margin: 8px 0 0;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.comment-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: baseline;
+}
+@media (max-width: 760px) {
+  .captcha-row,
+  .comment-admin-tools,
+  .admin-comment-row {
+    grid-template-columns: 1fr;
+  }
+}
