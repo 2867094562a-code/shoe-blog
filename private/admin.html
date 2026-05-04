@@ -60,6 +60,7 @@
         <div class="workspace-tabs">
           <button class="workspace-tab active" data-admin-tab="posts" type="button">文章</button>
           <button class="workspace-tab" data-admin-tab="pages" type="button">页面</button>
+          <button class="workspace-tab" data-admin-tab="comments" type="button">评论</button>
           <button class="workspace-tab" data-admin-tab="settings" type="button">站点设置</button>
         </div>
 
@@ -183,6 +184,25 @@
               <div id="pageFrontPreview" class="front-preview-shell"></div>
             </section>
           </div>
+        </div>
+
+
+        <div class="workspace-panel" data-admin-panel="comments">
+          <section class="admin-card pane-card content-list-card comments-admin-card">
+            <div class="admin-head">
+              <div>
+                <h2>评论管理</h2>
+                <p class="muted">这里集中查看文章评论。遇到乱评论、广告评论，可以直接删除；前台评论已经加入验证码。</p>
+              </div>
+              <button id="refreshCommentsBtn" class="ghost" type="button">刷新评论</button>
+            </div>
+            <div class="comment-admin-tools">
+              <input id="commentSearchInput" type="search" placeholder="搜索昵称、内容、文章标题..." />
+              <span class="muted" id="commentCountText">0 条评论</span>
+            </div>
+            <div id="commentTable" class="admin-list comment-admin-list"></div>
+            <p id="commentAdminMsg" class="message"></p>
+          </section>
         </div>
 
         <div class="workspace-panel" data-admin-panel="settings">
