@@ -62,6 +62,7 @@
           <button class="workspace-tab" data-admin-tab="pages" type="button">页面</button>
           <button class="workspace-tab" data-admin-tab="comments" type="button">评论</button>
           <button class="workspace-tab" data-admin-tab="settings" type="button">站点设置</button>
+          <button class="workspace-tab" data-admin-tab="diagnostics" type="button">系统检查</button>
         </div>
 
         <div class="workspace-panel active" data-admin-panel="posts">
@@ -288,6 +289,24 @@
           </div>
         </div>
       </section>
+
+
+        <div class="workspace-panel" data-admin-panel="diagnostics">
+          <section class="admin-card pane-card diagnostics-card">
+            <div class="admin-head">
+              <div>
+                <h2>系统检查</h2>
+                <p class="muted">检查当前部署环境、数据库模式、图片存储配置和后台入口。这里不会显示任何密钥明文。</p>
+              </div>
+              <button id="refreshDiagnosticsBtn" class="ghost" type="button">重新检查</button>
+            </div>
+            <div id="diagnosticsPanel" class="diagnostics-panel">
+              <p class="muted">点击“重新检查”或切换到本页时自动检查。</p>
+            </div>
+            <p id="diagnosticsMsg" class="message"></p>
+          </section>
+        </div>
+
     </section>
   </main>
 
