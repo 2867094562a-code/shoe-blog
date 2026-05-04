@@ -6,6 +6,7 @@ const adminPanel = $('#adminPanel');
 const postForm = $('#postForm');
 const pageForm = $('#pageForm');
 const settingsForm = $('#settingsForm');
+let settingsHomePreviewFast = () => {};
 
 let posts = [];
 let pages = [];
@@ -59,7 +60,7 @@ function bindVisibilityToggles() {
     moduleVisibilityState[input.dataset.visibleModule] = input.checked;
     syncModuleVisibilityInput();
     markDirty();
-    renderSettingsHomePreviewFast?.();
+    settingsHomePreviewFast();
   }));
 }
 function isPreviewModuleVisible(key) { return moduleVisibilityState[key] !== false; }
@@ -191,9 +192,9 @@ function updateArticleTaxonomyUI() {
   $$('[data-remove-post-tag]', tagBox || document).forEach(btn => btn.addEventListener('click', () => { setCurrentPostTags(currentPostTags().filter(t => t !== btn.dataset.removePostTag)); updateArticleTaxonomyUI(); renderPostPreview(); markDirty(); }));
   renderArticleTaxonomyOptions();
 }
-function renderTaxonomyEditors() { syncTaxonomyInputs(); const catWrap = $('#categoryEditorList'); if (catWrap) catWrap.innerHTML = taxonomyState.categories.length ? taxonomyState.categories.map((name, index) => `<div class="taxonomy-editor-row card-lite"><input data-tax-edit="category" data-tax-index="${index}" value="${escapeHtml(name)}"><div class="row-actions"><button type="button" data-tax-up="category" data-tax-index="${index}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" data-tax-down="category" data-tax-index="${index}" ${index === taxonomyState.categories.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="danger" data-tax-delete="category" data-tax-index="${index}">删除</button></div></div>`).join('') : '<p class="muted">暂无分类。</p>'; const tagWrap = $('#tagEditorList'); if (tagWrap) tagWrap.innerHTML = taxonomyState.tags.length ? taxonomyState.tags.map((name, index) => `<div class="taxonomy-editor-row card-lite"><input data-tax-edit="tag" data-tax-index="${index}" value="${escapeHtml(name)}"><div class="row-actions"><button type="button" data-tax-up="tag" data-tax-index="${index}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" data-tax-down="tag" data-tax-index="${index}" ${index === taxonomyState.tags.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="danger" data-tax-delete="tag" data-tax-index="${index}">删除</button></div></div>`).join('') : '<p class="muted">暂无标签。</p>'; $$('[data-tax-edit]').forEach(input => input.addEventListener('change', () => { const key = input.dataset.taxEdit === 'category' ? 'categories' : 'tags'; const norm = input.dataset.taxEdit === 'category' ? normalizeCategoryInput(input.value) : normalizeTagInput(input.value); taxonomyState[key][Number(input.dataset.taxIndex)] = norm; taxonomyState[key] = uniqueItems(taxonomyState[key].filter(Boolean)); syncTaxonomyInputs(); renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); })); $$('[data-tax-delete]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxDelete === 'category' ? 'categories' : 'tags'; taxonomyState[key].splice(Number(btn.dataset.taxIndex), 1); renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); })); $$('[data-tax-up]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxUp === 'category' ? 'categories' : 'tags'; const i = Number(btn.dataset.taxIndex); if (i > 0) [taxonomyState[key][i - 1], taxonomyState[key][i]] = [taxonomyState[key][i], taxonomyState[key][i - 1]]; renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); })); $$('[data-tax-down]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxDown === 'category' ? 'categories' : 'tags'; const i = Number(btn.dataset.taxIndex); if (i < taxonomyState[key].length - 1) [taxonomyState[key][i + 1], taxonomyState[key][i]] = [taxonomyState[key][i], taxonomyState[key][i + 1]]; renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); })); renderArticleTaxonomyOptions(); }
-function addCategoryFromInput(value) { const cat = normalizeCategoryInput(value); if (!cat) return; if (!taxonomyState.categories.includes(cat)) taxonomyState.categories.push(cat); renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); showIsland(`已新增分类 @${cat}`); }
-function addTagFromInput(value) { const tag = normalizeTagInput(value); if (!tag) return; if (!taxonomyState.tags.includes(tag)) taxonomyState.tags.push(tag); renderTaxonomyEditors(); renderSettingsHomePreviewFast?.(); markDirty(); showIsland(`已新增标签 ${tag}`); }
+function renderTaxonomyEditors() { syncTaxonomyInputs(); const catWrap = $('#categoryEditorList'); if (catWrap) catWrap.innerHTML = taxonomyState.categories.length ? taxonomyState.categories.map((name, index) => `<div class="taxonomy-editor-row card-lite"><input data-tax-edit="category" data-tax-index="${index}" value="${escapeHtml(name)}"><div class="row-actions"><button type="button" data-tax-up="category" data-tax-index="${index}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" data-tax-down="category" data-tax-index="${index}" ${index === taxonomyState.categories.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="danger" data-tax-delete="category" data-tax-index="${index}">删除</button></div></div>`).join('') : '<p class="muted">暂无分类。</p>'; const tagWrap = $('#tagEditorList'); if (tagWrap) tagWrap.innerHTML = taxonomyState.tags.length ? taxonomyState.tags.map((name, index) => `<div class="taxonomy-editor-row card-lite"><input data-tax-edit="tag" data-tax-index="${index}" value="${escapeHtml(name)}"><div class="row-actions"><button type="button" data-tax-up="tag" data-tax-index="${index}" ${index === 0 ? 'disabled' : ''}>上移</button><button type="button" data-tax-down="tag" data-tax-index="${index}" ${index === taxonomyState.tags.length - 1 ? 'disabled' : ''}>下移</button><button type="button" class="danger" data-tax-delete="tag" data-tax-index="${index}">删除</button></div></div>`).join('') : '<p class="muted">暂无标签。</p>'; $$('[data-tax-edit]').forEach(input => input.addEventListener('change', () => { const key = input.dataset.taxEdit === 'category' ? 'categories' : 'tags'; const norm = input.dataset.taxEdit === 'category' ? normalizeCategoryInput(input.value) : normalizeTagInput(input.value); taxonomyState[key][Number(input.dataset.taxIndex)] = norm; taxonomyState[key] = uniqueItems(taxonomyState[key].filter(Boolean)); syncTaxonomyInputs(); renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); })); $$('[data-tax-delete]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxDelete === 'category' ? 'categories' : 'tags'; taxonomyState[key].splice(Number(btn.dataset.taxIndex), 1); renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); })); $$('[data-tax-up]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxUp === 'category' ? 'categories' : 'tags'; const i = Number(btn.dataset.taxIndex); if (i > 0) [taxonomyState[key][i - 1], taxonomyState[key][i]] = [taxonomyState[key][i], taxonomyState[key][i - 1]]; renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); })); $$('[data-tax-down]').forEach(btn => btn.addEventListener('click', () => { const key = btn.dataset.taxDown === 'category' ? 'categories' : 'tags'; const i = Number(btn.dataset.taxIndex); if (i < taxonomyState[key].length - 1) [taxonomyState[key][i + 1], taxonomyState[key][i]] = [taxonomyState[key][i], taxonomyState[key][i + 1]]; renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); })); renderArticleTaxonomyOptions(); }
+function addCategoryFromInput(value) { const cat = normalizeCategoryInput(value); if (!cat) return; if (!taxonomyState.categories.includes(cat)) taxonomyState.categories.push(cat); renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); showIsland(`已新增分类 @${cat}`); }
+function addTagFromInput(value) { const tag = normalizeTagInput(value); if (!tag) return; if (!taxonomyState.tags.includes(tag)) taxonomyState.tags.push(tag); renderTaxonomyEditors(); settingsHomePreviewFast(); markDirty(); showIsland(`已新增标签 ${tag}`); }
 function bindTaxonomyUI() { $$('[data-tax-tab]').forEach(btn => btn.addEventListener('click', () => { $$('[data-tax-tab]').forEach(b => b.classList.toggle('active', b === btn)); $$('[data-tax-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.taxPanel === btn.dataset.taxTab)); })); $('#addCategoryBtn')?.addEventListener('click', () => { addCategoryFromInput($('#newCategoryInput')?.value); if ($('#newCategoryInput')) $('#newCategoryInput').value = ''; }); $('#addTagBtn')?.addEventListener('click', () => { addTagFromInput($('#newTagInput')?.value); if ($('#newTagInput')) $('#newTagInput').value = ''; }); $('#newCategoryInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#addCategoryBtn')?.click(); } }); $('#newTagInput')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); $('#addTagBtn')?.click(); } }); $('#postCategoryCommand')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const cat = normalizeCategoryInput(e.target.value); if (!cat) return; postForm.category.value = cat; ensureTaxonomy(cat, []); e.target.value = ''; updateArticleTaxonomyUI(); renderPostPreview(); showIsland(`文章分类已设为 @${cat}`); } }); $('#postTagCommand')?.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); const tag = normalizeTagInput(e.target.value); if (!tag) return; setCurrentPostTags([...currentPostTags(), tag]); ensureTaxonomy('', [tag]); e.target.value = ''; updateArticleTaxonomyUI(); renderPostPreview(); showIsland(`已加入标签 ${tag}`); } }); }
 
 
@@ -530,9 +531,13 @@ function renderBlockItem(kind, block, index) {
 }
 
 function addBlock(kind, type, data = {}) {
+  if (!blockEditors[kind]) kind = 'post';
   const editor = blockEditors[kind];
+  const listEl = $(editor.list);
+  if (!listEl) { showIsland('没有找到模块编辑区，请刷新后台页面'); return; }
   ensureBlocks(kind);
-  const insertAt = Math.min(editor.blocks.length, Number(editor.activeIndex ?? editor.blocks.length - 1) + 1);
+  const currentIndex = Number.isFinite(Number(editor.activeIndex)) ? Number(editor.activeIndex) : editor.blocks.length - 1;
+  const insertAt = editor.blocks.length ? Math.min(editor.blocks.length, currentIndex + 1) : 0;
   const block = newBlock(type, data);
   block.justAdded = true;
   editor.blocks.splice(insertAt, 0, block);
@@ -561,10 +566,10 @@ function bindBlockToolbarDelegation() {
     if (!btn) return;
     e.preventDefault();
     e.stopPropagation();
-    const kind = btn.dataset.editor || 'post';
+    const kind = btn.dataset.editor || btn.closest('[data-block-toolbar]')?.dataset.editor || 'post';
     const type = btn.dataset.addBlock || 'text';
     addBlock(kind, type);
-  });
+  }, true);
 }
 
 function updateSummary() { const published = posts.filter(p => p.status === 'published').length; const postDrafts = posts.filter(p => p.status !== 'published').length; const pageDrafts = pages.filter(p => p.status !== 'published').length; $('#summaryPosts').textContent = String(posts.length); $('#summaryPublished').textContent = String(published); $('#summaryPages').textContent = String(pages.length); $('#summaryDrafts').textContent = String(postDrafts + pageDrafts); }
@@ -673,7 +678,7 @@ async function handlePageContentUpload() { const msg = $('#pageContentUploadMsg'
 async function handleAvatarUpload() { const msg = $('#avatarUploadMsg'); try { settingsForm.author_avatar.value = await uploadImage($('#avatarUpload'), msg, 'avatars'); } catch (err) { msg.textContent = err.message; } }
 async function handleLogoUpload() { const msg = $('#logoUploadMsg'); try { settingsForm.logo_url.value = await uploadImage($('#logoUpload'), msg, 'logos'); } catch (err) { msg.textContent = err.message; } }
 
-async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) settingsForm.elements[key].value = value; moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); renderSettingsHomePreviewFast?.(); initTiltCards(document); }
+async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) settingsForm.elements[key].value = value; moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); settingsHomePreviewFast(); initTiltCards(document); }
 async function saveSettings(e) { e.preventDefault(); try { syncHomeCardsInput(); syncTaxonomyInputs(); syncModuleVisibilityInput(); Object.keys(LIST_CONFIG).forEach(syncListInput); const saved = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(formDataToObject(settingsForm)) }); $('#settingsMsg').textContent = '设置已保存。前台刷新后会读取最新设置；已对接口禁用缓存。'; if (saved?.settings) { moduleVisibilityState = parseModuleVisibility(saved.settings.module_visibility); renderVisibilityToggles(); } markSaved(); showIsland('站点设置已保存'); } catch (err) { $('#settingsMsg').textContent = err.message; } }
 
 $('#loginForm').addEventListener('submit', async e => { e.preventDefault(); $('#loginMsg').textContent = ''; try { await api('/api/auth/login', { method: 'POST', body: JSON.stringify(formDataToObject(e.target)) }); await checkLogin(); } catch (err) { $('#loginMsg').textContent = err.message; } });
@@ -697,6 +702,9 @@ initTheme();
 bindMouseAura();
 bindTaxonomyUI();
 updateArticleTaxonomyUI();
+// v10.16: 模块添加按钮必须在登录检查前就绑定。
+// 之前如果 loadSettings 中途报错，后面的 initBlockEditors 不会执行，导致 + 文字/图片/视频按钮无反应。
+bindBlockToolbarDelegation();
 await checkLogin();
 initBlockEditors();
 renderPostPreview();
@@ -801,9 +809,9 @@ function renderSettingsHomePreview() {
     </div>`;
 }
 
-const renderSettingsHomePreviewFast = debounce(() => renderSettingsHomePreview(), 100);
-settingsForm?.addEventListener('input', () => { markDirty(); renderSettingsHomePreviewFast(); });
-settingsForm?.addEventListener('change', () => { markDirty(); renderSettingsHomePreviewFast(); });
+settingsHomePreviewFast = debounce(() => renderSettingsHomePreview(), 100);
+settingsForm?.addEventListener('input', () => { markDirty(); settingsHomePreviewFast(); });
+settingsForm?.addEventListener('change', () => { markDirty(); settingsHomePreviewFast(); });
 settingsForm?.addEventListener('click', () => setTimeout(renderSettingsHomePreview, 0));
 
 // 追加到原有加载流程之后，避免影响文章 / 页面编辑器初始化。
