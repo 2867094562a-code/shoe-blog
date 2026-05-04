@@ -62,7 +62,7 @@
           <button class="workspace-tab" data-admin-tab="pages" type="button">页面</button>
           <button class="workspace-tab" data-admin-tab="comments" type="button">评论</button>
           <button class="workspace-tab" data-admin-tab="settings" type="button">站点设置</button>
-          <button class="workspace-tab" data-admin-tab="diagnostics" type="button">系统检查</button>
+          <button class="workspace-tab" data-admin-tab="system" type="button">系统检查</button>
         </div>
 
         <div class="workspace-panel active" data-admin-panel="posts">
@@ -93,11 +93,13 @@
                     <input id="postCategoryCommand" placeholder="输入 @分类 后回车，例如 @教程" autocomplete="off" />
                     <input name="category" type="hidden" />
                     <div id="postCategoryChip" class="taxonomy-chip-box muted">未选择分类</div>
+                    <div class="taxonomy-option-wrap"><small>从站点设置选择分类</small><div id="postCategoryOptions" class="taxonomy-option-list muted">暂无分类选项</div></div>
                   </label>
                   <label>标签
                     <input id="postTagCommand" placeholder="输入 #标签 后回车，例如 #部署" autocomplete="off" />
                     <input name="tags" type="hidden" />
                     <div id="postTagChips" class="taxonomy-chip-box muted">未添加标签</div>
+                    <div class="taxonomy-option-wrap"><small>从站点设置选择标签</small><div id="postTagOptions" class="taxonomy-option-list muted">暂无标签选项</div></div>
                   </label>
                 </div>
                 <label>封面图 URL<input name="cover" placeholder="https://..." /></label>
@@ -288,25 +290,21 @@
           </aside>
           </div>
         </div>
-      </section>
 
-
-        <div class="workspace-panel" data-admin-panel="diagnostics">
-          <section class="admin-card pane-card diagnostics-card">
+        <div class="workspace-panel" data-admin-panel="system">
+          <section class="admin-card pane-card system-check-card">
             <div class="admin-head">
               <div>
                 <h2>系统检查</h2>
-                <p class="muted">检查当前部署环境、数据库模式、图片存储配置和后台入口。这里不会显示任何密钥明文。</p>
+                <p class="muted">检查当前部署环境、数据库、图片存储、后台入口和上传配置。这里不会显示密钥明文。</p>
               </div>
-              <button id="refreshDiagnosticsBtn" class="ghost" type="button">重新检查</button>
+              <button id="refreshSystemBtn" class="ghost" type="button">刷新检查</button>
             </div>
-            <div id="diagnosticsPanel" class="diagnostics-panel">
-              <p class="muted">点击“重新检查”或切换到本页时自动检查。</p>
-            </div>
-            <p id="diagnosticsMsg" class="message"></p>
+            <div id="systemCheckTable" class="system-check-grid"></div>
+            <p id="systemCheckMsg" class="message"></p>
           </section>
         </div>
-
+      </section>
     </section>
   </main>
 
