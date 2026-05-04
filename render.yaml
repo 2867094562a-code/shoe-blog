@@ -3,11 +3,11 @@ services:
     name: argon-like-blog
     env: node
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: npm install -g pnpm@9.12.3 && pnpm install --no-frozen-lockfile
+    startCommand: node src/server.js
     envVars:
       - key: NODE_VERSION
-        value: 20
+        value: 20.18.1
       - key: NODE_ENV
         value: production
       - key: PGSSL
