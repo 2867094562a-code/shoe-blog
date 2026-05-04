@@ -26,7 +26,8 @@ import {
   createPage,
   updatePage,
   deletePage,
-  deleteComment
+  deleteComment,
+  listComments
 } from './db.js';
 import { uploadImage } from './storage.js';
 
@@ -84,6 +85,33 @@ function requireAuth(req, res, next) {
 
 function safeString(value, max = 20000) {
   return String(value ?? '').trim().slice(0, max);
+}
+
+function makeCaptcha() {
+  const a = Math.floor(Math.random() * 8) + 2;
+  const b = Math.floor(Math.random() * 8) + 2;
+  const useMinus = Math.random() < 0.28;
+  const left = useMinus ? Math.max(a, b) : a;
+  const right = useMinus ? Math.min(a, b) : b;
+  const answer = useMinus ? left - right : left + right;
+  const question = useMinus ? `${left} - ${right} = ?` : `${left} + ${right} = ?`;
+  const token = jwt.sign({ type: 'comment-captcha', answer }, JWT_SECRET, { expiresIn: '10m' });
+  return { question, token };
+}
+
+function verifyCaptcha(token, answer) {
+  if (!token || answer == null) throw new Error('请先完成验证码');
+  let payload;
+  try {
+    payload = jwt.verify(String(token), JWT_SECRET);
+  } catch {
+    throw new Error('验证码已过期，请刷新验证码');
+  }
+  if (payload?.type !== 'comment-captcha') throw new Error('验证码无效，请刷新验证码');
+  const normalized = String(answer).trim();
+  if (!/^\d+$/.test(normalized) || Number(normalized) !== Number(payload.answer)) {
+    throw new Error('验证码错误，请重新输入');
+  }
 }
 
 app.use(helmet({
@@ -155,12 +183,18 @@ app.get('/api/taxonomies', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+
+app.get('/api/captcha', (req, res) => {
+  res.json(makeCaptcha());
+});
+
 app.post('/api/comments', async (req, res, next) => {
   try {
     const name = safeString(req.body.name, 30);
     const email = safeString(req.body.email, 100);
     const content = safeString(req.body.content, 1000);
     const post_id = Number(req.body.post_id);
+    verifyCaptcha(req.body.captcha_token, req.body.captcha_answer);
     if (!post_id || !name || !content) return res.status(400).json({ error: '昵称和评论内容不能为空' });
     const comments = await createComment({ post_id, name, email, content });
     res.json({ comments });
@@ -269,6 +303,13 @@ app.post('/api/admin/upload', requireAuth, upload.single('image'), async (req, r
     if (err.code === 'LIMIT_FILE_SIZE') err.message = `图片太大，请控制在 ${process.env.MAX_UPLOAD_MB || 5}MB 以内`;
     next(err);
   }
+});
+
+
+app.get('/api/admin/comments', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ comments: await listComments({ limit: Number(req.query.limit || 300) }) });
+  } catch (err) { next(err); }
 });
 
 app.delete('/api/admin/comments/:id', requireAuth, async (req, res, next) => {

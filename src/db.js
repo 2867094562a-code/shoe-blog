@@ -752,6 +752,44 @@ export async function deletePage(id) {
   return { ok: true };
 }
 
+
+export async function listComments({ limit = 300 } = {}) {
+  const safeLimit = Math.min(1000, Math.max(1, Number(limit) || 300));
+  if (hasPostgres) {
+    const rows = await pgAll(`
+      SELECT c.id, c.post_id, c.name, c.email, c.content, c.created_at,
+             p.title AS post_title, p.slug AS post_slug
+      FROM comments c
+      LEFT JOIN posts p ON p.id = c.post_id
+      ORDER BY c.created_at DESC
+      LIMIT ?
+    `, [safeLimit]);
+    return rows.map(r => ({
+      id: r.id,
+      post_id: r.post_id,
+      name: r.name,
+      email: r.email || '',
+      content: r.content,
+      created_at: r.created_at,
+      post_title: r.post_title || '已删除文章',
+      post_slug: r.post_slug || ''
+    }));
+  }
+  return store.comments
+    .slice()
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .slice(0, safeLimit)
+    .map(c => {
+      const post = store.posts.find(p => Number(p.id) === Number(c.post_id));
+      return {
+        ...c,
+        email: c.email || '',
+        post_title: post?.title || '已删除文章',
+        post_slug: post?.slug || ''
+      };
+    });
+}
+
 export async function deleteComment(id) {
   if (hasPostgres) {
     await pgRun('DELETE FROM comments WHERE id = ?', [id]);
