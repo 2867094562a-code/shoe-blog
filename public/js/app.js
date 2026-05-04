@@ -479,6 +479,21 @@ function commentListHtml(comments = []) {
   if (!comments.length) return '<p class="muted">还没有评论，来当第一个评论的人吧。</p>';
   return comments.map(c => `<div class="comment"><b>${escapeHtml(c.name)}</b><small class="muted">${fmtDate(c.created_at)}</small><p>${escapeHtml(c.content)}</p></div>`).join('');
 }
+
+async function refreshCommentCaptcha() {
+  const form = $('#commentForm');
+  if (!form) return;
+  const msg = $('#captchaQuestion');
+  const tokenInput = form.elements.captcha_token;
+  try {
+    const data = await api('/api/captcha');
+    if (msg) msg.textContent = data.question || '请刷新验证码';
+    if (tokenInput) tokenInput.value = data.token || '';
+    if (form.elements.captcha_answer) form.elements.captcha_answer.value = '';
+  } catch {
+    if (msg) msg.textContent = '验证码加载失败，点刷新重试';
+  }
+}
 async function renderPost(slug) {
   const { post } = await api(`/api/posts/${encodeURIComponent(slug)}`);
   const { posts: allPosts } = await api('/api/posts');
@@ -490,9 +505,11 @@ async function renderPost(slug) {
   setTitle(post.title);
   const licenseHtml = isModuleVisible('license') ? `<section class="card license-box reveal-up in-view"><b>版权说明</b><p>${escapeHtml(licenseText)}</p></section>` : '';
   const navHtml = isModuleVisible('post_nav') ? `<section class="post-nav reveal-up in-view">${prevPost ? `<a class="card post-nav-card" href="${postHref(prevPost.slug)}"><small>上一篇</small><b>${escapeHtml(prevPost.title)}</b></a>` : '<span></span>'}${nextPost ? `<a class="card post-nav-card" href="${postHref(nextPost.slug)}"><small>下一篇</small><b>${escapeHtml(nextPost.title)}</b></a>` : '<span></span>'}</section>` : '';
-  const commentsHtml = isModuleVisible('comments') ? `<section class="card comments reveal-up in-view"><h3>评论</h3><form id="commentForm" class="form-grid"><input type="hidden" name="post_id" value="${post.id}"><div class="two-col"><label>昵称<input name="name" required placeholder="怎么称呼你"></label><label>邮箱<input name="email" placeholder="可不填"></label></div><label>评论内容<textarea name="content" rows="4" required placeholder="写点什么吧"></textarea></label><div class="button-row"><button class="primary" type="submit">提交评论</button></div><p id="commentMsg" class="message"></p></form><div id="commentList">${commentListHtml(post.comments || [])}</div></section>` : '';
+  const commentsHtml = isModuleVisible('comments') ? `<section class="card comments reveal-up in-view"><h3>评论</h3><form id="commentForm" class="form-grid"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="captcha_token"><div class="two-col"><label>昵称<input name="name" required placeholder="怎么称呼你"></label><label>邮箱<input name="email" placeholder="可不填"></label></div><label>评论内容<textarea name="content" rows="4" required placeholder="写点什么吧"></textarea></label><div class="captcha-row"><div class="captcha-question"><span>验证码：</span><b id="captchaQuestion">加载中...</b></div><label class="captcha-answer">答案<input name="captcha_answer" inputmode="numeric" pattern="[0-9]*" required placeholder="填数字"></label><button id="refreshCaptchaBtn" class="ghost" type="button">刷新验证码</button></div><div class="button-row"><button class="primary" type="submit">提交评论</button></div><p id="commentMsg" class="message"></p></form><div id="commentList">${commentListHtml(post.comments || [])}</div></section>` : '';
   app.innerHTML = `<article class="card post-full reveal-up in-view">${post.cover ? `<img class="article-cover" src="${escapeHtml(post.cover)}" alt="${escapeHtml(post.title)}">` : ''}<header class="post-hero"><h1>${escapeHtml(post.title)}</h1><div class="article-meta" style="justify-content:center"><span>📅 ${fmtDate(post.created_at)}</span><a href="${categoryHref(post.category || '')}">📁 ${escapeHtml(post.category || '未分类')}</a><span>👁 ${post.views || 0}</span></div><div class="article-tags" style="justify-content:center">${tags}</div></header><div class="post-content">${renderMarkdown(post.content || '')}</div><div class="post-bottom">${buildToc()}${licenseHtml}${navHtml}${commentsHtml}</div></article>`;
-  $('#commentForm')?.addEventListener('submit', async e => { e.preventDefault(); const payload = Object.fromEntries(new FormData(e.target).entries()); try { const { comments } = await api('/api/comments', { method: 'POST', body: JSON.stringify(payload) }); $('#commentMsg').textContent = '评论已提交。'; $('#commentList').innerHTML = commentListHtml(comments); e.target.reset(); showIsland('评论提交成功'); } catch (err) { $('#commentMsg').textContent = err.message; showIsland('评论提交失败'); } });
+  $('#commentForm')?.addEventListener('submit', async e => { e.preventDefault(); const payload = Object.fromEntries(new FormData(e.target).entries()); try { const { comments } = await api('/api/comments', { method: 'POST', body: JSON.stringify(payload) }); $('#commentMsg').textContent = '评论已提交。'; $('#commentList').innerHTML = commentListHtml(comments); e.target.reset(); await refreshCommentCaptcha(); showIsland('评论提交成功'); } catch (err) { $('#commentMsg').textContent = err.message; await refreshCommentCaptcha(); showIsland('评论提交失败'); } });
+  $('#refreshCaptchaBtn')?.addEventListener('click', refreshCommentCaptcha);
+  if (isModuleVisible('comments')) await refreshCommentCaptcha();
   $$('[data-toc]').forEach(a => a.addEventListener('click', () => document.getElementById(a.dataset.toc)?.scrollIntoView({ behavior: 'smooth', block: 'start' })));
   afterRender();
 }

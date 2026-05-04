@@ -9,6 +9,7 @@ const settingsForm = $('#settingsForm');
 
 let posts = [];
 let pages = [];
+let comments = [];
 let homeCards = [];
 let islandTimer = null;
 const listState = { header_nav_links: [], nav_links: [], project_cards: [], friend_links: [], music_playlist: [] };
@@ -93,7 +94,7 @@ function updateScrollProgress() { const progress = $('#scrollProgress'); const m
 function bindMouseAura() { const aura = $('#mouseAura'); if (!aura) return; window.addEventListener('pointermove', e => { document.body.classList.add('motion-ready'); aura.style.transform = `translate3d(${e.clientX - 180}px, ${e.clientY - 180}px, 0) scale(1)`; }, { passive: true }); window.addEventListener('scroll', updateScrollProgress, { passive: true }); updateScrollProgress(); }
 function observeReveal() { if (!('IntersectionObserver' in window)) { $$('.reveal-up').forEach(el => el.classList.add('in-view')); return; } const io = new IntersectionObserver(entries => { entries.forEach(entry => { if (entry.isIntersecting) { entry.target.classList.add('in-view'); io.unobserve(entry.target); } }); }, { threshold: 0.12 }); $$('.reveal-up').forEach(el => { if (!el.classList.contains('in-view')) io.observe(el); }); }
 function initTheme() { const saved = localStorage.getItem('theme') || 'light'; document.documentElement.classList.toggle('dark', saved === 'dark'); $('#themeBtn').textContent = saved === 'dark' ? '☀️' : '🌙'; $('#themeBtn').addEventListener('click', () => { const dark = !document.documentElement.classList.contains('dark'); document.documentElement.classList.toggle('dark', dark); localStorage.setItem('theme', dark ? 'dark' : 'light'); $('#themeBtn').textContent = dark ? '☀️' : '🌙'; }); }
-function switchTab(name) { $$('[data-admin-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminTab === name)); $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name)); showIsland(name === 'posts' ? '文章管理' : name === 'pages' ? '页面管理' : '站点设置'); }
+function switchTab(name) { $$('[data-admin-tab]').forEach(btn => btn.classList.toggle('active', btn.dataset.adminTab === name)); $$('[data-admin-panel]').forEach(panel => panel.classList.toggle('active', panel.dataset.adminPanel === name)); if (name === 'comments') loadComments(); showIsland(name === 'posts' ? '文章管理' : name === 'pages' ? '页面管理' : name === 'comments' ? '评论管理' : '站点设置'); }
 function showAdmin() { loginPanel.classList.add('hidden'); adminPanel.classList.remove('hidden'); $('#logoutBtn').classList.remove('hidden'); }
 function showLogin() { loginPanel.classList.remove('hidden'); adminPanel.classList.add('hidden'); $('#logoutBtn').classList.add('hidden'); }
 
@@ -505,7 +506,7 @@ function updateSlugHints() { const pSlug = normalizeSlug(postForm?.slug?.value |
 function renderPostPreview() { syncBlocksToContent('post'); const el = $('#postFrontPreview'); if (!el || !postForm) return; const d = formDataToObject(postForm); updateSlugHints(); const tags = String(d.tags || '').split(/[，,]/).map(t => t.trim()).filter(Boolean).map(t => `<span class="tag">${escapeHtml(tagLabel(t))}</span>`).join(''); applyPreviewCustomStyles(); el.innerHTML = `<article class="card post-full preview-post">${d.cover ? `<img class="article-cover" src="${escapeHtml(d.cover)}" alt="${escapeHtml(d.title)}">` : '<div class="article-cover preview-cover-placeholder">文章封面预览</div>'}<header class="post-hero"><h1>${escapeHtml(d.title || '文章标题预览')}</h1><div class="article-meta" style="justify-content:center"><span>📅 ${fmtDate(new Date())}</span><span>📁 ${escapeHtml(d.category || '未分类')}</span><span>👁 0</span></div><p class="muted">${escapeHtml(d.excerpt || '这里会显示文章摘要。')}</p><div class="article-tags" style="justify-content:center">${tags}</div></header><div class="post-content">${d.content ? renderMarkdown(d.content) : '<p class="muted">开始输入正文后，这里会显示接近前台文章详情页的效果。</p>'}</div><div class="post-bottom"><section class="card license-box"><b>版权说明</b><p>本文由站点作者原创或整理发布，转载请注明来源。</p></section><section class="card comments"><h3>评论</h3><p class="muted">文章预览会显示评论区域；页面预览不会显示评论区域。</p></section></div></article>`; initTiltCards(el); }
 function renderPagePreview() { syncBlocksToContent('page'); const el = $('#pageFrontPreview'); if (!el || !pageForm) return; const d = formDataToObject(pageForm); updateSlugHints(); applyPreviewCustomStyles(); el.innerHTML = `<article class="card page-full preview-page template-${escapeHtml(d.template || 'standard')}">${d.cover ? `<img class="article-cover" src="${escapeHtml(d.cover)}" alt="${escapeHtml(d.title)}">` : ''}<header class="page-hero"><small class="page-type-label">独立页面 · 不进入文章流</small><h1>${escapeHtml(d.title || '页面标题预览')}</h1><p class="muted">${escapeHtml(d.summary || '这里会显示页面摘要。')}</p></header><div class="post-content page-content-preview">${d.content ? renderMarkdown(d.content) : '<p class="muted">开始输入页面正文后，这里会显示接近前台独立页面的效果。</p>'}</div></article>`; initTiltCards(el); }
 
-async function checkLogin() { const { user } = await api('/api/auth/me'); if (user) { showAdmin(); await loadPosts(); await loadPages(); await loadSettings(); showIsland('登录成功'); } else showLogin(); }
+async function checkLogin() { const { user } = await api('/api/auth/me'); if (user) { showAdmin(); await loadPosts(); await loadPages(); await loadSettings(); await loadComments(false); showIsland('登录成功'); } else showLogin(); }
 async function loadPosts() { const data = await api('/api/admin/posts'); posts = data.posts || []; renderPostTable(); updateSummary(); }
 function renderPostTable() { $('#postTable').innerHTML = posts.length ? posts.map(p => `<div class="admin-post-row reveal-up in-view"><div><h3>${escapeHtml(p.title)}</h3><p class="muted">${escapeHtml(p.status)} · ${fmtDate(p.created_at)} · ${escapeHtml(p.category || '未分类')} · ${cleanPath(p.slug)}</p></div><div class="row-actions"><a class="small-btn" href="${cleanPath(p.slug)}" target="_blank">查看</a><button data-edit="${p.id}">编辑</button><button class="danger" data-delete="${p.id}">删除</button></div></div>`).join('') : '<p class="muted">暂无文章。</p>'; $$('[data-edit]').forEach(btn => btn.addEventListener('click', () => editPost(btn.dataset.edit))); $$('[data-delete]').forEach(btn => btn.addEventListener('click', () => removePost(btn.dataset.delete))); }
 async function editPost(id) { const { post } = await api(`/api/admin/posts/${id}`); $('#editorTitle').textContent = `编辑文章：${post.title}`; postForm.id.value = post.id; postForm.title.value = post.title || ''; postForm.slug.value = post.slug || ''; postForm.category.value = post.category || ''; postForm.tags.value = Array.isArray(post.tags) ? post.tags.join(',') : (post.tags || ''); updateArticleTaxonomyUI(); postForm.cover.value = post.cover || ''; postForm.excerpt.value = post.excerpt || ''; postForm.content.value = post.content || ''; setBlocksFromMarkdown('post', post.content || ''); postForm.status.value = post.status || 'published'; renderPostPreview(); switchTab('posts'); postForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -517,6 +518,54 @@ async function loadPages() { const data = await api('/api/admin/pages'); pages =
 function renderPageTable() { $('#pageTable').innerHTML = pages.length ? pages.map(p => `<div class="admin-post-row page-row reveal-up in-view"><div><h3>${escapeHtml(p.title)}</h3><p class="muted">${escapeHtml(p.status)} · ${fmtDate(p.created_at)} · 模板：${escapeHtml(p.template || 'standard')} · ${cleanPath(p.slug)}</p></div><div class="row-actions"><a class="small-btn" href="${cleanPath(p.slug)}" target="_blank">查看</a><button data-page-edit="${p.id}">编辑</button><button class="danger" data-page-delete="${p.id}">删除</button></div></div>`).join('') : '<p class="muted">暂无页面。</p>'; $$('[data-page-edit]').forEach(btn => btn.addEventListener('click', () => editPage(btn.dataset.pageEdit))); $$('[data-page-delete]').forEach(btn => btn.addEventListener('click', () => removePage(btn.dataset.pageDelete))); }
 async function editPage(id) { const { page } = await api(`/api/admin/pages/${id}`); $('#pageEditorTitle').textContent = `编辑页面：${page.title}`; pageForm.id.value = page.id; pageForm.title.value = page.title || ''; pageForm.slug.value = page.slug || ''; pageForm.sort_order.value = page.sort_order || 0; pageForm.summary.value = page.summary || ''; pageForm.cover.value = page.cover || ''; pageForm.content.value = page.content || ''; setBlocksFromMarkdown('page', page.content || ''); pageForm.template.value = page.template || 'standard'; pageForm.status.value = page.status || 'published'; renderPagePreview(); switchTab('pages'); pageForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 async function removePage(id) { if (!confirm('确定删除这个页面吗？')) return; await api(`/api/admin/pages/${id}`, { method: 'DELETE' }); $('#pageMsg').textContent = '页面已删除。'; await loadPages(); await loadSettings(); showIsland('页面已删除'); }
+
+async function loadComments(showTip = true) {
+  try {
+    const data = await api('/api/admin/comments');
+    comments = data.comments || [];
+    renderCommentTable();
+    if (showTip) showIsland('评论已刷新');
+  } catch (err) {
+    const msg = $('#commentAdminMsg');
+    if (msg) msg.textContent = err.message;
+  }
+}
+function renderCommentTable() {
+  const wrap = $('#commentTable');
+  const count = $('#commentCountText');
+  if (!wrap) return;
+  const keyword = String($('#commentSearchInput')?.value || '').trim().toLowerCase();
+  const list = comments.filter(c => !keyword || `${c.name || ''} ${c.email || ''} ${c.content || ''} ${c.post_title || ''}`.toLowerCase().includes(keyword));
+  if (count) count.textContent = `${list.length} / ${comments.length} 条评论`;
+  wrap.innerHTML = list.length ? list.map(c => `
+    <div class="admin-comment-row card-lite">
+      <div class="comment-row-main">
+        <div class="comment-row-head">
+          <b>${escapeHtml(c.name || '匿名')}</b>
+          <small class="muted">${fmtDate(c.created_at)} · ${escapeHtml(c.email || '未留邮箱')}</small>
+        </div>
+        <p>${escapeHtml(c.content || '')}</p>
+        <p class="muted">文章：${c.post_slug ? `<a href="${cleanPath(c.post_slug)}" target="_blank">${escapeHtml(c.post_title || c.post_slug)}</a>` : escapeHtml(c.post_title || '已删除文章')}</p>
+      </div>
+      <div class="row-actions">
+        ${c.post_slug ? `<a class="small-btn" href="${cleanPath(c.post_slug)}" target="_blank">查看文章</a>` : ''}
+        <button class="danger" type="button" data-comment-delete="${c.id}">删除评论</button>
+      </div>
+    </div>`).join('') : '<p class="muted">暂无评论。</p>';
+  $$('[data-comment-delete]', wrap).forEach(btn => btn.addEventListener('click', () => removeComment(btn.dataset.commentDelete)));
+}
+async function removeComment(id) {
+  if (!confirm('确定删除这条评论吗？删除后不可恢复。')) return;
+  try {
+    await api(`/api/admin/comments/${id}`, { method: 'DELETE' });
+    comments = comments.filter(c => String(c.id) !== String(id));
+    renderCommentTable();
+    $('#commentAdminMsg').textContent = '评论已删除。';
+    showIsland('评论已删除');
+  } catch (err) {
+    $('#commentAdminMsg').textContent = err.message;
+  }
+}
 function resetPageForm() { pageForm.reset(); pageForm.id.value = ''; pageForm.sort_order.value = '0'; setBlocksFromMarkdown('page', ''); $('#pageEditorTitle').textContent = '新建页面'; $('#pageMsg').textContent = ''; renderPagePreview(); }
 async function savePage(e) { e.preventDefault(); syncBlocksToContent('page'); const data = formDataToObject(pageForm); const id = data.id; delete data.id; try { if (id) { await api(`/api/admin/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已更新。'; } else { await api('/api/admin/pages', { method: 'POST', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已创建。'; resetPageForm(); } await loadPages(); await loadSettings(); markSaved(); showIsland('页面已保存'); } catch (err) { $('#pageMsg').textContent = err.message; } }
 
@@ -542,6 +591,8 @@ $('#newPageBtn')?.addEventListener('click', resetPageForm); $('#resetPageBtn')?.
 $('#insertPostVideoBtn')?.addEventListener('click', () => addBlock('post', 'video', { title: '外部视频', ratio: '16:9' })); $('#insertPageVideoBtn')?.addEventListener('click', () => addBlock('page', 'video', { title: '外部视频', ratio: '16:9' }));
 $('#coverUploadBtn')?.addEventListener('click', handleCoverUpload); $('#contentUploadBtn')?.addEventListener('click', handleContentUpload); $('#pageCoverUploadBtn')?.addEventListener('click', handlePageCoverUpload); $('#pageContentUploadBtn')?.addEventListener('click', handlePageContentUpload); $('#avatarUploadBtn')?.addEventListener('click', handleAvatarUpload); $('#logoUploadBtn')?.addEventListener('click', handleLogoUpload);
 $('#addHomeCardBtn')?.addEventListener('click', addHomeCard); $('#addHeaderNavBtn')?.addEventListener('click', () => addListItem('header_nav_links')); $('#addNavLinkBtn')?.addEventListener('click', () => addListItem('nav_links')); $('#addProjectCardBtn')?.addEventListener('click', () => addListItem('project_cards')); $('#addFriendLinkBtn')?.addEventListener('click', () => addListItem('friend_links')); $('#addMusicBtn')?.addEventListener('click', () => addListItem('music_playlist'));
+$('#refreshCommentsBtn')?.addEventListener('click', () => loadComments());
+$('#commentSearchInput')?.addEventListener('input', renderCommentTable);
 settingsForm?.addEventListener('input', applyPreviewCustomStyles);
 settingsForm?.addEventListener('submit', saveSettings);
 bindVisibilityToggles();
