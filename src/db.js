@@ -11,6 +11,11 @@ const hasPostgres = Boolean(process.env.DATABASE_URL);
 let pool;
 let store;
 
+const RESERVED_SLUGS = new Set([
+  'api', 'admin', 'admin.html', 'archive', 'category', 'tag', 'search', 'uploads',
+  'login', 'logout', 'settings', 'comments', 'pages', 'posts', 'assets', 'favicon.ico'
+]);
+
 function nowISO() {
   return new Date().toISOString();
 }
@@ -568,14 +573,18 @@ export async function findUser(username) {
 }
 
 async function ensureUniqueSlug(base, ignoreId = null) {
-  let slug = slugBase(base);
+  const root = slugBase(base);
+  let slug = RESERVED_SLUGS.has(root) ? `${root}-post` : root;
   let i = 2;
   while (true) {
-    const existing = hasPostgres
+    const existingPost = hasPostgres
       ? await pgGet('SELECT id FROM posts WHERE slug = ?', [slug])
       : store.posts.find(p => p.slug === slug);
-    if (!existing || String(existing.id) === String(ignoreId)) return slug;
-    slug = `${slugBase(base)}-${i++}`;
+    const existingPage = hasPostgres
+      ? await pgGet('SELECT id FROM pages WHERE slug = ?', [slug])
+      : store.pages.find(p => p.slug === slug);
+    if ((!existingPost || String(existingPost.id) === String(ignoreId)) && !existingPage) return slug;
+    slug = `${root}-${i++}`;
   }
 }
 
@@ -650,14 +659,18 @@ export async function deletePost(id) {
 
 
 async function ensureUniquePageSlug(base, ignoreId = null) {
-  let slug = slugBase(base);
+  const root = slugBase(base);
+  let slug = RESERVED_SLUGS.has(root) ? `${root}-page` : root;
   let i = 2;
   while (true) {
-    const existing = hasPostgres
+    const existingPage = hasPostgres
       ? await pgGet('SELECT id FROM pages WHERE slug = ?', [slug])
       : store.pages.find(p => p.slug === slug);
-    if (!existing || String(existing.id) === String(ignoreId)) return slug;
-    slug = `${slugBase(base)}-${i++}`;
+    const existingPost = hasPostgres
+      ? await pgGet('SELECT id FROM posts WHERE slug = ?', [slug])
+      : store.posts.find(p => p.slug === slug);
+    if ((!existingPage || String(existingPage.id) === String(ignoreId)) && !existingPost) return slug;
+    slug = `${root}-${i++}`;
   }
 }
 

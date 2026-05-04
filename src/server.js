@@ -41,6 +41,21 @@ const rawAdminPath = String(process.env.ADMIN_PATH || '/console-7f92x').trim();
 const ADMIN_PATH = rawAdminPath.startsWith('/') ? rawAdminPath : `/${rawAdminPath}`;
 const ADMIN_PATH_ALT = ADMIN_PATH.endsWith('/') ? ADMIN_PATH.slice(0, -1) : `${ADMIN_PATH}/`;
 const ADMIN_HTML_FILE = path.join(__dirname, '../private/admin.html');
+const DESKTOP_HTML_FILE = path.join(__dirname, '../public/index.html');
+const MOBILE_HTML_FILE = path.join(__dirname, '../public/mobile.html');
+
+function isMobileUserAgent(req) {
+  const ua = String(req.headers['user-agent'] || '').toLowerCase();
+  if (req.query?.view === 'desktop') return false;
+  if (req.query?.view === 'mobile') return true;
+  return /android|iphone|ipod|ipad|mobile|windows phone|harmonyos|miuibrowser|huaweibrowser|ucbrowser|quark|mqqbrowser/.test(ua);
+}
+
+function serveFrontEntry(req, res) {
+  res.setHeader('Vary', 'User-Agent');
+  res.sendFile(isMobileUserAgent(req) ? MOBILE_HTML_FILE : DESKTOP_HTML_FILE);
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Number(process.env.MAX_UPLOAD_MB || 5) * 1024 * 1024 }
@@ -87,6 +102,34 @@ function safeString(value, max = 20000) {
   return String(value ?? '').trim().slice(0, max);
 }
 
+function badRequest(message) {
+  const err = new Error(message);
+  err.status = 400;
+  return err;
+}
+
+const commentRateBuckets = new Map();
+function getClientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown').split(',')[0].trim();
+}
+function checkCommentRate(req) {
+  const key = getClientIp(req);
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const maxCount = 8;
+  const bucket = (commentRateBuckets.get(key) || []).filter(t => now - t < windowMs);
+  if (bucket.length >= maxCount) throw badRequest('评论提交太频繁，请稍后再试');
+  bucket.push(now);
+  commentRateBuckets.set(key, bucket);
+  if (commentRateBuckets.size > 1000) {
+    for (const [ip, times] of commentRateBuckets.entries()) {
+      const live = times.filter(t => now - t < windowMs);
+      if (live.length) commentRateBuckets.set(ip, live);
+      else commentRateBuckets.delete(ip);
+    }
+  }
+}
+
 function makeCaptcha() {
   const a = Math.floor(Math.random() * 8) + 2;
   const b = Math.floor(Math.random() * 8) + 2;
@@ -100,17 +143,17 @@ function makeCaptcha() {
 }
 
 function verifyCaptcha(token, answer) {
-  if (!token || answer == null) throw new Error('请先完成验证码');
+  if (!token || answer == null) throw badRequest('请先完成验证码');
   let payload;
   try {
     payload = jwt.verify(String(token), JWT_SECRET);
   } catch {
-    throw new Error('验证码已过期，请刷新验证码');
+    throw badRequest('验证码已过期，请刷新验证码');
   }
-  if (payload?.type !== 'comment-captcha') throw new Error('验证码无效，请刷新验证码');
+  if (payload?.type !== 'comment-captcha') throw badRequest('验证码无效，请刷新验证码');
   const normalized = String(answer).trim();
   if (!/^\d+$/.test(normalized) || Number(normalized) !== Number(payload.answer)) {
-    throw new Error('验证码错误，请重新输入');
+    throw badRequest('验证码错误，请重新输入');
   }
 }
 
@@ -128,12 +171,41 @@ app.get([ADMIN_PATH, ADMIN_PATH_ALT], (req, res) => {
   res.sendFile(ADMIN_HTML_FILE);
 });
 
+// 前台入口按 User-Agent 选择桌面模板或手机模板。
+app.get(['/', '/index.html'], serveFrontEntry);
+
 app.use(express.static(path.join(__dirname, '../public'), {
   maxAge: process.env.NODE_ENV === 'production' ? '1h' : 0
 }));
 
+app.use('/api', (req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 app.get('/api/health', async (req, res) => {
   res.json({ ok: true, time: new Date().toISOString(), adminPathConfigured: true });
+});
+
+app.get('/api/admin/diagnostics', requireAuth, async (req, res) => {
+  res.json({
+    ok: true,
+    time: new Date().toISOString(),
+    node: process.version,
+    env: process.env.NODE_ENV || 'development',
+    database: process.env.DATABASE_URL ? 'postgres' : 'json-local',
+    storageProvider: (process.env.STORAGE_PROVIDER || (process.env.SUPABASE_URL && process.env.SUPABASE_BUCKET ? 'supabase' : 'local')).toLowerCase(),
+    storage: {
+      supabaseUrl: Boolean(process.env.SUPABASE_URL),
+      supabaseServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      supabaseBucket: process.env.SUPABASE_BUCKET || '',
+      r2Configured: Boolean(process.env.R2_ACCOUNT_ID && process.env.R2_ACCESS_KEY_ID && process.env.R2_SECRET_ACCESS_KEY && process.env.R2_BUCKET),
+      maxUploadMb: Number(process.env.MAX_UPLOAD_MB || 5)
+    },
+    adminPath: ADMIN_PATH
+  });
 });
 
 app.get('/api/site', async (req, res, next) => {
@@ -195,6 +267,7 @@ app.post('/api/comments', async (req, res, next) => {
     const content = safeString(req.body.content, 1000);
     const post_id = Number(req.body.post_id);
     verifyCaptcha(req.body.captcha_token, req.body.captcha_answer);
+    checkCommentRate(req);
     if (!post_id || !name || !content) return res.status(400).json({ error: '昵称和评论内容不能为空' });
     const comments = await createComment({ post_id, name, email, content });
     res.json({ comments });
@@ -335,12 +408,16 @@ app.put('/api/admin/settings', requireAuth, async (req, res, next) => {
 // 这些地址直接刷新时，也返回前台 index.html，由前端路由再判断是文章还是页面。
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();
-  res.sendFile(path.join(__dirname, '../public/index.html'));
+  serveFrontEntry(req, res);
 });
 
 app.use((err, req, res, next) => {
   console.error(err);
-  res.status(500).json({ error: err.message || '服务器错误' });
+  const msg = String(err.message || '服务器错误');
+  const validationHints = ['不能为空', '不存在', '验证码', '只支持', '没有收到', '太大', '无效', '已过期', '错误', '频繁'];
+  const inferredStatus = validationHints.some(h => msg.includes(h)) ? 400 : 500;
+  const status = Number(err.status || err.statusCode || inferredStatus);
+  res.status(status >= 400 && status < 600 ? status : 500).json({ error: msg });
 });
 
 await initDb();
