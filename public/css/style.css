@@ -1714,29 +1714,84 @@ body.theme-bg-flow[data-theme-flow="right"] { animation-name: bgFlowRight; }
   .tilt-card::after { display: none !important; }
 }
 
-/* V10.9 final polish: diagnostics + mobile visibility cards */
-.diagnostics-panel {
+/* v10.12：修复手机端非夜间主题下 Hero 底部黑色高斯模糊块
+   原因：手机端仍继承桌面端大尺寸 bg-orb / hero-glow / 强阴影，部分浏览器在浅色主题下会把混合背景渲染成黑色模糊块。
+   做法：手机模板禁用桌面大光斑，改用轻量圆形背景氛围光。 */
+.mobile-template .bg-orb,
+.mobile-template .orb-a,
+.mobile-template .orb-b,
+.mobile-template .orb-c,
+.mobile-template .hero-glow,
+.mobile-template .hero-glow-a,
+.mobile-template .hero-glow-b {
+  display: none !important;
+  opacity: 0 !important;
+  filter: none !important;
+}
+
+.mobile-template {
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 18% -8%, color-mix(in srgb, var(--primary) 16%, transparent), transparent 32%),
+    radial-gradient(circle at 110% 16%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 30%),
+    linear-gradient(180deg, var(--bg-2), var(--bg)) !important;
+}
+
+.mobile-safe-glow {
+  position: fixed;
+  pointer-events: none;
+  z-index: -3;
+  right: -92px;
+  top: 22vh;
+  width: 220px;
+  height: 220px;
+  border-radius: 999px;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 24%, transparent) 0%, color-mix(in srgb, var(--primary) 10%, transparent) 38%, transparent 72%);
+  opacity: .42;
+  filter: blur(18px);
+  transform: translateZ(0);
+}
+
+.mobile-template .mobile-hero {
+  overflow: hidden !important;
+  contain: paint;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 92%, #fff 4%), color-mix(in srgb, var(--accent) 82%, #fff 8%)) !important;
+  box-shadow: 0 18px 36px color-mix(in srgb, var(--primary) 18%, transparent) !important;
+}
+
+.mobile-template .mobile-hero::before,
+.mobile-template .mobile-hero::after {
+  content: none !important;
+  display: none !important;
+}
+
+.mobile-template .hero-noise {
+  opacity: .045 !important;
+}
+
+:root[data-theme-preset="night"] .mobile-template .mobile-safe-glow,
+:root.dark .mobile-template .mobile-safe-glow {
+  opacity: .18;
+  filter: blur(20px);
+}
+
+/* v10.13 final: system check panel */
+.system-check-grid {
   display: grid;
-  gap: 10px;
-  margin-top: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
 }
-.diagnostic-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  padding: 14px 16px;
-  border-radius: 18px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--surface-strong) 90%, transparent);
+.system-check-item {
+  padding: 16px;
 }
-.diagnostic-row b { color: var(--text); }
-.diagnostic-row span { color: var(--muted); text-align: right; word-break: break-all; }
-.mobile-category-card.hidden,
-.mobile-tag-card.hidden,
-.mobile-quick.hidden,
-.mobile-profile-strip.hidden { display: none !important; }
-@media (max-width: 720px) {
-  .diagnostic-row { align-items: flex-start; flex-direction: column; }
-  .diagnostic-row span { text-align: left; }
+.system-check-item small {
+  display: block;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.system-check-item b {
+  display: block;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
