@@ -109,6 +109,12 @@ function postHref(slug = '') { return `/${encodeURIComponent(String(slug || '').
 function categoryHref(name = '') { return `/category/${encodeURIComponent(name)}`; }
 function tagHref(name = '') { return `/tag/${encodeURIComponent(name)}`; }
 function tagLabel(name = '') { return String(name || '').startsWith('#') ? String(name || '') : `#${name}`; }
+function readingMinutes(text = '') {
+  const plain = String(text || '').replace(/[#>*_`~\[\]()!:-]/g, ' ').trim();
+  const cn = (plain.match(/[\u4e00-\u9fa5]/g) || []).length;
+  const words = plain.replace(/[\u4e00-\u9fa5]/g, ' ').split(/\s+/).filter(Boolean).length;
+  return Math.max(1, Math.ceil((cn + words * 2) / 450));
+}
 function inlineMd(text = '') {
   return escapeHtml(text)
     .replace(/!\[([^\]]*)\]\(((?:https?:\/\/|\/)[^\s)]+)\)/g, '<img alt="$1" src="$2">')
@@ -443,7 +449,8 @@ function initMusicPlayer(items = []) {
 }
 function postCard(post, delay = 0) {
   const tags = (post.tags || []).map(t => `<a class="tag" href="${tagHref(t)}">${escapeHtml(tagLabel(t))}</a>`).join('');
-  return `<article class="card article-card reveal-up in-view tilt-card" style="transition-delay:${delay}ms" data-tilt-strength="5" data-tilt-move="3">${post.cover ? `<a href="${postHref(post.slug)}"><img class="article-cover" src="${escapeHtml(post.cover)}" alt="${escapeHtml(post.title)}"></a>` : ''}<div class="article-body"><h2><a href="${postHref(post.slug)}">${escapeHtml(post.title)}</a></h2><div class="article-meta"><span>📅 ${fmtDate(post.created_at)}</span><a href="${categoryHref(post.category || '')}">📁 ${escapeHtml(post.category || '未分类')}</a><span>👁 ${post.views || 0}</span></div><p class="article-excerpt">${escapeHtml(post.excerpt || '这篇文章没有摘要。')}</p><div class="article-tags">${tags}</div></div></article>`;
+  const badges = `${post.is_pinned ? '<span class="post-badge">置顶</span>' : ''}${post.is_featured ? '<span class="post-badge featured">精选</span>' : ''}`;
+  return `<article class="card article-card reveal-up in-view tilt-card" style="transition-delay:${delay}ms" data-tilt-strength="5" data-tilt-move="3">${post.cover ? `<a class="article-cover-wrap" href="${postHref(post.slug)}">${badges}<img class="article-cover" src="${escapeHtml(post.cover)}" alt="${escapeHtml(post.title)}"></a>` : `<div class="post-badge-row">${badges}</div>`}<div class="article-body"><h2><a href="${postHref(post.slug)}">${escapeHtml(post.title)}</a></h2><div class="article-meta"><span>📅 ${fmtDate(post.created_at)}</span><a href="${categoryHref(post.category || '')}">📁 ${escapeHtml(post.category || '未分类')}</a><span>👁 ${post.views || 0}</span><span>❤ ${Number(post.likes || 0)}</span></div><p class="article-excerpt">${escapeHtml(post.excerpt || '这篇文章没有摘要。')}</p><div class="article-tags">${tags}</div></div></article>`;
 }
 function updateBrand(settings) {
   const brandText = settings.logo_text || settings.site_title || 'Argon Lite Blog';
@@ -560,6 +567,21 @@ function commentListHtml(comments = []) {
   if (!comments.length) return '<p class="muted">还没有评论，来当第一个评论的人吧。</p>';
   return comments.map(c => `<div class="comment"><b>${escapeHtml(c.name)}</b><small class="muted">${fmtDate(c.created_at)}</small><p>${escapeHtml(c.content)}</p></div>`).join('');
 }
+function relatedPostsHtml(post, allPosts = []) {
+  const tags = new Set(post.tags || []);
+  const related = allPosts
+    .filter(p => p.slug !== post.slug)
+    .map(p => ({
+      post: p,
+      score: (p.category && p.category === post.category ? 3 : 0) + (p.tags || []).filter(t => tags.has(t)).length + (p.is_featured ? 0.5 : 0)
+    }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || new Date(b.post.created_at) - new Date(a.post.created_at))
+    .slice(0, 4)
+    .map(item => item.post);
+  if (!related.length) return '';
+  return `<section class="card related-posts reveal-up in-view"><h3>相关文章</h3><div class="related-grid">${related.map(p => `<a class="related-card" href="${postHref(p.slug)}">${p.cover ? `<img src="${escapeHtml(p.cover)}" alt="${escapeHtml(p.title)}" loading="lazy">` : ''}<b>${escapeHtml(p.title)}</b><small>${escapeHtml(p.category || '未分类')} · ❤ ${Number(p.likes || 0)}</small></a>`).join('')}</div></section>`;
+}
 
 async function refreshCommentCaptcha() {
   const form = $('#commentForm');
@@ -581,6 +603,7 @@ async function renderPost(slug) {
   const idx = allPosts.findIndex(p => p.slug === post.slug);
   const prevPost = idx >= 0 ? allPosts[idx + 1] : null;
   const nextPost = idx > 0 ? allPosts[idx - 1] : null;
+  const minutes = readingMinutes(post.content || post.excerpt || '');
   const licenseText = site?.settings?.license_text || '本文由站点作者原创或整理发布，转载请注明来源。';
   const tags = (post.tags || []).map(t => `<a class="tag" href="${tagHref(t)}">${escapeHtml(tagLabel(t))}</a>`).join('');
   applySeo({
@@ -592,8 +615,10 @@ async function renderPost(slug) {
   });
   const licenseHtml = isModuleVisible('license') ? `<section class="card license-box reveal-up in-view"><b>版权说明</b><p>${escapeHtml(licenseText)}</p></section>` : '';
   const navHtml = isModuleVisible('post_nav') ? `<section class="post-nav reveal-up in-view">${prevPost ? `<a class="card post-nav-card" href="${postHref(prevPost.slug)}"><small>上一篇</small><b>${escapeHtml(prevPost.title)}</b></a>` : '<span></span>'}${nextPost ? `<a class="card post-nav-card" href="${postHref(nextPost.slug)}"><small>下一篇</small><b>${escapeHtml(nextPost.title)}</b></a>` : '<span></span>'}</section>` : '';
+  const relatedHtml = relatedPostsHtml(post, allPosts);
   const commentsHtml = isModuleVisible('comments') ? `<section class="card comments reveal-up in-view"><h3>评论</h3><form id="commentForm" class="form-grid"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="captcha_token"><div class="two-col"><label>昵称<input name="name" required placeholder="怎么称呼你"></label><label>邮箱<input name="email" placeholder="可不填"></label></div><label>评论内容<textarea name="content" rows="4" required placeholder="写点什么吧"></textarea></label><div class="captcha-row"><div class="captcha-question"><span>验证码：</span><b id="captchaQuestion">加载中...</b></div><label class="captcha-answer">答案<input name="captcha_answer" inputmode="numeric" pattern="[0-9]*" required placeholder="填数字"></label><button id="refreshCaptchaBtn" class="ghost" type="button">刷新验证码</button></div><div class="button-row"><button class="primary" type="submit">提交评论</button></div><p id="commentMsg" class="message"></p></form><div id="commentList">${commentListHtml(post.comments || [])}</div></section>` : '';
-  app.innerHTML = `<article class="card post-full reveal-up in-view">${post.cover ? `<img class="article-cover" src="${escapeHtml(post.cover)}" alt="${escapeHtml(post.title)}">` : ''}<header class="post-hero"><h1>${escapeHtml(post.title)}</h1><div class="article-meta" style="justify-content:center"><span>📅 ${fmtDate(post.created_at)}</span><a href="${categoryHref(post.category || '')}">📁 ${escapeHtml(post.category || '未分类')}</a><span>👁 ${post.views || 0}</span></div><div class="article-tags" style="justify-content:center">${tags}</div></header><div class="post-content">${renderMarkdown(post.content || '')}</div><div class="post-bottom">${buildToc()}${licenseHtml}${navHtml}${commentsHtml}</div></article>`;
+  app.innerHTML = `<article class="card post-full reveal-up in-view">${post.cover ? `<img class="article-cover lightbox-img" src="${escapeHtml(post.cover)}" alt="${escapeHtml(post.title)}">` : ''}<header class="post-hero"><div class="post-badge-row">${post.is_pinned ? '<span class="post-badge">置顶</span>' : ''}${post.is_featured ? '<span class="post-badge featured">精选</span>' : ''}</div><h1>${escapeHtml(post.title)}</h1><div class="article-meta" style="justify-content:center"><span>📅 ${fmtDate(post.created_at)}</span><a href="${categoryHref(post.category || '')}">📁 ${escapeHtml(post.category || '未分类')}</a><span>⏱ ${minutes} 分钟</span><span>👁 ${post.views || 0}</span><span id="likeCount">❤ ${Number(post.likes || 0)}</span></div><div class="article-tags" style="justify-content:center">${tags}</div><button id="likePostBtn" class="like-button" type="button" data-post-id="${post.id}"><span>❤</span> 喜欢</button></header><div class="post-content">${renderMarkdown(post.content || '')}</div><div class="post-bottom">${buildToc()}${licenseHtml}${relatedHtml}${navHtml}${commentsHtml}</div></article>`;
+  $('#likePostBtn')?.addEventListener('click', likeCurrentPost);
   $('#commentForm')?.addEventListener('submit', async e => { e.preventDefault(); const payload = Object.fromEntries(new FormData(e.target).entries()); try { const data = await api('/api/comments', { method: 'POST', body: JSON.stringify(payload) }); $('#commentMsg').textContent = data.message || '评论已提交。'; $('#commentList').innerHTML = commentListHtml(data.comments || []); e.target.reset(); await refreshCommentCaptcha(); showIsland(data.status === 'pending' ? '评论等待审核' : '评论提交成功'); } catch (err) { $('#commentMsg').textContent = err.message; await refreshCommentCaptcha(); showIsland('评论提交失败'); } });
   $('#refreshCaptchaBtn')?.addEventListener('click', refreshCommentCaptcha);
   if (isModuleVisible('comments')) await refreshCommentCaptcha();
@@ -638,7 +663,63 @@ function initTiltCards(root = document) {
   });
 }
 function afterRender() {
-  app.classList.remove('route-out'); app.classList.add('route-in'); window.setTimeout(() => app.classList.remove('route-in'), 520); observeReveal(app); initTiltCards(app);
+  app.classList.remove('route-out'); app.classList.add('route-in'); window.setTimeout(() => app.classList.remove('route-in'), 520); observeReveal(app); initTiltCards(app); bindLightbox(app);
+}
+
+async function likeCurrentPost(e) {
+  const btn = e.currentTarget;
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  try {
+    const data = await api(`/api/posts/${btn.dataset.postId}/like`, { method: 'POST' });
+    $('#likeCount') && ($('#likeCount').textContent = `❤ ${Number(data.likes || 0)}`);
+    btn.classList.add('liked');
+    spawnHeart(btn);
+    window.setTimeout(() => { btn.disabled = false; }, 700);
+  } catch (err) {
+    btn.disabled = false;
+    showIsland(err.message || '点赞失败');
+  }
+}
+function spawnHeart(anchor) {
+  const rect = anchor.getBoundingClientRect();
+  for (let i = 0; i < 6; i++) {
+    const heart = document.createElement('span');
+    heart.className = 'floating-heart';
+    heart.textContent = '❤';
+    heart.style.left = `${rect.left + rect.width / 2 + (Math.random() - 0.5) * 34}px`;
+    heart.style.top = `${rect.top + window.scrollY + 8}px`;
+    heart.style.setProperty('--dx', `${(Math.random() - 0.5) * 70}px`);
+    heart.style.setProperty('--dy', `${-70 - Math.random() * 80}px`);
+    document.body.appendChild(heart);
+    window.setTimeout(() => heart.remove(), 1000);
+  }
+}
+function bindLightbox(root = document) {
+  $$('.post-content img, .post-full > .article-cover', root).forEach(img => {
+    if (img.dataset.lightboxBound) return;
+    img.dataset.lightboxBound = '1';
+    img.classList.add('lightbox-img');
+    img.addEventListener('click', () => openLightbox(img.src, img.alt || '图片预览'));
+  });
+}
+function openLightbox(src, alt = '图片预览') {
+  if (!src) return;
+  let box = $('#imageLightbox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'imageLightbox';
+    box.className = 'image-lightbox hidden';
+    box.innerHTML = '<button class="lightbox-close" type="button" aria-label="关闭">×</button><img alt=""><p></p>';
+    document.body.appendChild(box);
+    box.addEventListener('click', e => { if (e.target === box || e.target.closest('.lightbox-close')) box.classList.add('hidden'); });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') box.classList.add('hidden'); });
+  }
+  const img = box.querySelector('img');
+  img.src = src;
+  img.alt = alt;
+  box.querySelector('p').textContent = alt;
+  box.classList.remove('hidden');
 }
 function scrollToMainContent({ smooth = true } = {}) {
   requestAnimationFrame(() => {

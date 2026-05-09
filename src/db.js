@@ -78,6 +78,9 @@ function rowToPost(row) {
       .map(t => t.trim())
       .filter(Boolean),
     views: Number(row.views || 0),
+    likes: Number(row.likes || 0),
+    is_pinned: row.is_pinned === true || row.is_pinned === 'true',
+    is_featured: row.is_featured === true || row.is_featured === 'true',
     seo_noindex: row.seo_noindex === true || row.seo_noindex === 'true'
   };
 }
@@ -162,6 +165,9 @@ async function loadStore() {
     seo_description: '',
     seo_image: '',
     seo_noindex: false,
+    is_pinned: false,
+    is_featured: false,
+    likes: 0,
     ...p
   }));
   store.comments = (store.comments || []).map(c => ({
@@ -200,6 +206,9 @@ async function createTables() {
       seo_description TEXT NOT NULL DEFAULT '',
       seo_image TEXT NOT NULL DEFAULT '',
       seo_noindex BOOLEAN NOT NULL DEFAULT FALSE,
+      is_pinned BOOLEAN NOT NULL DEFAULT FALSE,
+      is_featured BOOLEAN NOT NULL DEFAULT FALSE,
+      likes INTEGER NOT NULL DEFAULT 0,
       views INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -239,6 +248,9 @@ async function createTables() {
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_description TEXT NOT NULL DEFAULT '';
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_image TEXT NOT NULL DEFAULT '';
     ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_noindex BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE;
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS likes INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS moderation_reason TEXT NOT NULL DEFAULT '';
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT '';
@@ -539,7 +551,7 @@ export async function listPosts({ search = '', category = '', tag = '', includeD
     if (category) { clauses.push('category = ?'); params.push(normalizeCategoryName(category)); }
     if (tag) { clauses.push('tags ILIKE ?'); params.push(`%${normalizeTagName(tag)}%`); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await pgAll(`SELECT id, title, slug, excerpt, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at FROM posts ${where} ORDER BY created_at DESC`, params);
+    const rows = await pgAll(`SELECT id, title, slug, excerpt, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, is_pinned, is_featured, likes, views, created_at, updated_at FROM posts ${where} ORDER BY is_pinned DESC, created_at DESC`, params);
     return rows.map(rowToPost);
   }
   const kw = String(search || '').toLowerCase();
@@ -548,7 +560,7 @@ export async function listPosts({ search = '', category = '', tag = '', includeD
     .filter(p => !kw || `${p.title} ${p.excerpt} ${p.content}`.toLowerCase().includes(kw))
     .filter(p => !category || p.category === normalizeCategoryName(category))
     .filter(p => !tag || normalizeTagList(p.tags).includes(normalizeTagName(tag)))
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    .sort((a, b) => Number(Boolean(b.is_pinned)) - Number(Boolean(a.is_pinned)) || new Date(b.created_at) - new Date(a.created_at))
     .map(p => rowToPost({ ...p, content: undefined }));
 }
 
@@ -653,15 +665,16 @@ export async function createPost(data) {
     seo_title: String(data.seo_title || ''),
     seo_description: String(data.seo_description || ''),
     seo_image: String(data.seo_image || ''),
-    seo_noindex: Object.prototype.hasOwnProperty.call(data, 'seo_noindex')
-      ? (data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on')
-      : Boolean(current.seo_noindex),
+    seo_noindex: data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on',
+    is_pinned: data.is_pinned === true || data.is_pinned === 'true' || data.is_pinned === 'on',
+    is_featured: data.is_featured === true || data.is_featured === 'true' || data.is_featured === 'on',
+    likes: 0,
     views: 0,
     created_at: nowISO(),
     updated_at: nowISO()
   };
   if (hasPostgres) {
-    const rows = await pgRun('INSERT INTO posts (title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *', [post.title, post.slug, post.excerpt, post.content, post.cover, post.category, post.tags, post.status, post.seo_title, post.seo_description, post.seo_image, post.seo_noindex, post.views, post.created_at, post.updated_at]);
+    const rows = await pgRun('INSERT INTO posts (title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, is_pinned, is_featured, likes, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *', [post.title, post.slug, post.excerpt, post.content, post.cover, post.category, post.tags, post.status, post.seo_title, post.seo_description, post.seo_image, post.seo_noindex, post.is_pinned, post.is_featured, post.likes, post.views, post.created_at, post.updated_at]);
     await syncTaxonomySettings(post.category, post.tags);
     return rowToPost(rows.rows[0]);
   }
@@ -690,11 +703,19 @@ export async function updatePost(id, data) {
     seo_title: String(data.seo_title ?? current.seo_title ?? ''),
     seo_description: String(data.seo_description ?? current.seo_description ?? ''),
     seo_image: String(data.seo_image ?? current.seo_image ?? ''),
-    seo_noindex: data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on',
+    seo_noindex: Object.prototype.hasOwnProperty.call(data, 'seo_noindex')
+      ? (data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on')
+      : Boolean(current.seo_noindex),
+    is_pinned: Object.prototype.hasOwnProperty.call(data, 'is_pinned')
+      ? (data.is_pinned === true || data.is_pinned === 'true' || data.is_pinned === 'on')
+      : Boolean(current.is_pinned),
+    is_featured: Object.prototype.hasOwnProperty.call(data, 'is_featured')
+      ? (data.is_featured === true || data.is_featured === 'true' || data.is_featured === 'on')
+      : Boolean(current.is_featured),
     updated_at: nowISO()
   };
   if (hasPostgres) {
-    const rows = await pgRun('UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, cover = ?, category = ?, tags = ?, status = ?, seo_title = ?, seo_description = ?, seo_image = ?, seo_noindex = ?, updated_at = ? WHERE id = ? RETURNING *', [updated.title, updated.slug, updated.excerpt, updated.content, updated.cover, updated.category, updated.tags, updated.status, updated.seo_title, updated.seo_description, updated.seo_image, updated.seo_noindex, updated.updated_at, id]);
+    const rows = await pgRun('UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, cover = ?, category = ?, tags = ?, status = ?, seo_title = ?, seo_description = ?, seo_image = ?, seo_noindex = ?, is_pinned = ?, is_featured = ?, updated_at = ? WHERE id = ? RETURNING *', [updated.title, updated.slug, updated.excerpt, updated.content, updated.cover, updated.category, updated.tags, updated.status, updated.seo_title, updated.seo_description, updated.seo_image, updated.seo_noindex, updated.is_pinned, updated.is_featured, updated.updated_at, id]);
     await syncTaxonomySettings(updated.category, updated.tags);
     return rowToPost(rows.rows[0]);
   }
@@ -714,6 +735,20 @@ export async function deletePost(id) {
     await saveStore();
   }
   return { ok: true };
+}
+
+export async function likePost(id) {
+  if (hasPostgres) {
+    const rows = await pgRun('UPDATE posts SET likes = likes + 1 WHERE id = ? RETURNING likes', [id]);
+    const next = rows.rows?.[0];
+    if (!next) throw new Error('文章不存在');
+    return { ok: true, likes: Number(next.likes || 0) };
+  }
+  const post = store.posts.find(p => Number(p.id) === Number(id));
+  if (!post) throw new Error('文章不存在');
+  post.likes = Number(post.likes || 0) + 1;
+  await saveStore();
+  return { ok: true, likes: post.likes };
 }
 
 
@@ -938,7 +973,10 @@ function normalizeBackupPost(post = {}) {
     seo_title: String(post.seo_title || ''),
     seo_description: String(post.seo_description || ''),
     seo_image: String(post.seo_image || ''),
-    seo_noindex: post.seo_noindex === true || post.seo_noindex === 'true'
+    seo_noindex: post.seo_noindex === true || post.seo_noindex === 'true',
+    is_pinned: post.is_pinned === true || post.is_pinned === 'true',
+    is_featured: post.is_featured === true || post.is_featured === 'true',
+    likes: Number(post.likes || 0)
   };
 }
 
@@ -983,7 +1021,7 @@ export async function importBackup(data = {}) {
       await client.query('DELETE FROM visit_stats');
       for (const [key, value] of Object.entries(settings)) await run('INSERT INTO settings (key, value) VALUES (?, ?)', [key, String(value ?? '')]);
       for (const p of posts) {
-        await run('INSERT INTO posts (id, title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [p.id, p.title, p.slug, p.excerpt || '', p.content || '', p.cover || '', normalizeCategoryName(p.category || '随笔'), p.tags || '', p.status === 'draft' ? 'draft' : 'published', p.seo_title || '', p.seo_description || '', p.seo_image || '', Boolean(p.seo_noindex), Number(p.views || 0), p.created_at || nowISO(), p.updated_at || nowISO()]);
+        await run('INSERT INTO posts (id, title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, is_pinned, is_featured, likes, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [p.id, p.title, p.slug, p.excerpt || '', p.content || '', p.cover || '', normalizeCategoryName(p.category || '随笔'), p.tags || '', p.status === 'draft' ? 'draft' : 'published', p.seo_title || '', p.seo_description || '', p.seo_image || '', Boolean(p.seo_noindex), Boolean(p.is_pinned), Boolean(p.is_featured), Number(p.likes || 0), Number(p.views || 0), p.created_at || nowISO(), p.updated_at || nowISO()]);
       }
       for (const p of pages) {
         await run('INSERT INTO pages (id, title, slug, summary, content, cover, template, status, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [p.id, p.title, p.slug, p.summary || '', p.content || '', p.cover || '', p.template || 'standard', p.status === 'draft' ? 'draft' : 'published', Number(p.sort_order || 0), p.created_at || nowISO(), p.updated_at || nowISO()]);

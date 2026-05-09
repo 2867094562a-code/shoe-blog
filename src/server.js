@@ -20,6 +20,7 @@ import {
   createPost,
   updatePost,
   deletePost,
+  likePost,
   listPages,
   getPageBySlug,
   getPageById,
@@ -258,6 +259,12 @@ app.get('/api/posts/:slug', async (req, res, next) => {
     const post = await getPostBySlug(req.params.slug);
     if (!post) return res.status(404).json({ error: '文章不存在' });
     res.json({ post });
+  } catch (err) { next(err); }
+});
+
+app.post('/api/posts/:id/like', async (req, res, next) => {
+  try {
+    res.json(await likePost(req.params.id));
   } catch (err) { next(err); }
 });
 
