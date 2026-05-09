@@ -28,7 +28,11 @@ import {
   deletePage,
   deleteComment,
   updateCommentStatus,
-  listComments
+  listComments,
+  recordVisit,
+  getVisitStats,
+  exportBackup,
+  importBackup
 } from './db.js';
 import { uploadImage } from './storage.js';
 
@@ -74,6 +78,7 @@ function isMobileUserAgent(req) {
 
 function serveFrontEntry(req, res) {
   res.setHeader('Vary', 'User-Agent');
+  if (req.method === 'GET') recordVisit(req.path).catch(err => console.error('visit stat failed:', err.message));
   res.sendFile(isMobileUserAgent(req) ? MOBILE_HTML_FILE : DESKTOP_HTML_FILE);
 }
 
@@ -195,7 +200,7 @@ function moderateComment({ settings, name, email, content, ip }) {
 app.use(helmet({
   contentSecurityPolicy: false
 }));
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '10mb' }));
 
 // 隐藏后台入口：默认不暴露 /admin 和 /admin.html。
 app.get(['/admin', '/admin/', '/admin.html'], (req, res) => {
@@ -435,9 +440,30 @@ app.put('/api/admin/comments/:id/status', requireAuth, async (req, res, next) =>
   } catch (err) { next(err); }
 });
 
+app.get('/api/admin/stats', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ stats: await getVisitStats({ days: Number(req.query.days || 14) }) });
+  } catch (err) { next(err); }
+});
+
+app.get('/api/admin/backup', requireAuth, async (req, res, next) => {
+  try {
+    const backup = await exportBackup();
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Disposition', `attachment; filename="shoe-blog-backup-${stamp}.json"`);
+    res.json(backup);
+  } catch (err) { next(err); }
+});
+
+app.post('/api/admin/backup/import', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await importBackup(req.body));
+  } catch (err) { next(err); }
+});
 
 app.get('/api/admin/system', requireAuth, async (req, res) => {
   const hasValue = value => Boolean(String(value || '').trim());
+  const stats = await getVisitStats({ days: 7 }).catch(() => ({ total: 0, top_paths: [] }));
   res.json({
     system: {
       node_version: process.version,
@@ -449,7 +475,9 @@ app.get('/api/admin/system', requireAuth, async (req, res) => {
       supabase_bucket: process.env.SUPABASE_BUCKET || '',
       max_upload_mb: Number(process.env.MAX_UPLOAD_MB || 5),
       admin_path_configured: ADMIN_PATH,
-      package_runtime: 'Node 20.18.1 + npm ci'
+      package_runtime: 'Node 20.18.1 + npm ci',
+      visits_7d: stats.total,
+      top_path_7d: stats.top_paths?.[0]?.path || '-'
     }
   });
 });

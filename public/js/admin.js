@@ -72,12 +72,51 @@ function normalizeSlug(value = '') { return String(value || '').trim().replace(/
 function cleanPath(value = '') { const slug = normalizeSlug(value); return slug ? `/${slug}` : '/'; }
 function normalizeLink(link = '') { const raw = String(link || '').trim(); if (!raw) return '#'; if (/^(https?:|mailto:|tel:|#)/i.test(raw)) return raw; return raw.startsWith('/') ? raw : `/${raw}`; }
 function formDataToObject(form) { return Object.fromEntries(new FormData(form).entries()); }
+function postDataToObject() {
+  const data = formDataToObject(postForm);
+  data.seo_noindex = postForm?.elements?.seo_noindex?.checked ? 'true' : 'false';
+  return data;
+}
 function settingsDataToObject() {
   const data = formDataToObject(settingsForm);
   data.comment_moderation_enabled = settingsForm?.elements?.comment_moderation_enabled?.checked ? 'true' : 'false';
   return data;
 }
 async function api(path, options = {}) { const res = await fetch(path, { cache: 'no-store', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options }); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || '请求失败'); return data; }
+function autosaveKey() { return `shoe-blog-post-autosave:${postForm?.id?.value || 'new'}`; }
+function setAutosaveStatus(text = '') { const el = $('#postAutosaveStatus'); if (el) el.textContent = text || '左写右看'; }
+function savePostAutosave() {
+  if (!postForm) return;
+  syncBlocksToContent('post');
+  const data = postDataToObject();
+  if (!String(data.title || data.content || data.excerpt || '').trim()) return;
+  localStorage.setItem(autosaveKey(), JSON.stringify({ saved_at: new Date().toISOString(), data }));
+  setAutosaveStatus(`已自动保存 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`);
+}
+const savePostAutosaveFast = debounce(savePostAutosave, 900);
+function applyPostDraft(data = {}) {
+  for (const [key, value] of Object.entries(data)) {
+    if (!postForm.elements[key]) continue;
+    if (postForm.elements[key].type === 'checkbox') postForm.elements[key].checked = value === true || value === 'true' || value === 'on';
+    else postForm.elements[key].value = value || '';
+  }
+  setCurrentPostTags(String(data.tags || '').split(/[，,]/).filter(Boolean));
+  updateArticleTaxonomyUI();
+  setBlocksFromMarkdown('post', data.content || '');
+  renderPostPreview();
+}
+function restorePostAutosave() {
+  const raw = localStorage.getItem(autosaveKey()) || localStorage.getItem('shoe-blog-post-autosave:new');
+  if (!raw) { showIsland('没有可恢复的自动草稿'); return; }
+  try {
+    const draft = JSON.parse(raw);
+    applyPostDraft(draft.data || {});
+    markDirty();
+    showIsland('已恢复自动草稿');
+  } catch {
+    showIsland('自动草稿读取失败');
+  }
+}
 
 function debounce(fn, delay = 120) {
   let timer = null;
@@ -356,6 +395,7 @@ const debouncedBlockPreview = {
 function blockEditorChanged(kind, options = {}) {
   syncBlocksToContent(kind);
   markDirty();
+  if (kind === 'post') savePostAutosaveFast();
   if (options.immediate) {
     kind === 'post' ? renderPostPreview() : renderPagePreview();
   } else {
@@ -585,10 +625,10 @@ function renderPagePreview() { syncBlocksToContent('page'); const el = $('#pageF
 async function checkLogin() { const { user } = await api('/api/auth/me'); if (user) { showAdmin(); await loadPosts(); await loadPages(); await loadSettings(); await loadComments(false); showIsland('登录成功'); } else showLogin(); }
 async function loadPosts() { const data = await api('/api/admin/posts'); posts = data.posts || []; renderPostTable(); updateSummary(); }
 function renderPostTable() { $('#postTable').innerHTML = posts.length ? posts.map(p => `<div class="admin-post-row reveal-up in-view"><div><h3>${escapeHtml(p.title)}</h3><p class="muted">${escapeHtml(p.status)} · ${fmtDate(p.created_at)} · ${escapeHtml(p.category || '未分类')} · ${cleanPath(p.slug)}</p></div><div class="row-actions"><a class="small-btn" href="${cleanPath(p.slug)}" target="_blank">查看</a><button data-edit="${p.id}">编辑</button><button class="danger" data-delete="${p.id}">删除</button></div></div>`).join('') : '<p class="muted">暂无文章。</p>'; $$('[data-edit]').forEach(btn => btn.addEventListener('click', () => editPost(btn.dataset.edit))); $$('[data-delete]').forEach(btn => btn.addEventListener('click', () => removePost(btn.dataset.delete))); }
-async function editPost(id) { const { post } = await api(`/api/admin/posts/${id}`); $('#editorTitle').textContent = `编辑文章：${post.title}`; postForm.id.value = post.id; postForm.title.value = post.title || ''; postForm.slug.value = post.slug || ''; postForm.category.value = post.category || ''; postForm.tags.value = Array.isArray(post.tags) ? post.tags.join(',') : (post.tags || ''); updateArticleTaxonomyUI(); postForm.cover.value = post.cover || ''; postForm.excerpt.value = post.excerpt || ''; postForm.content.value = post.content || ''; setBlocksFromMarkdown('post', post.content || ''); postForm.status.value = post.status || 'published'; renderPostPreview(); switchTab('posts'); postForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
+async function editPost(id) { const { post } = await api(`/api/admin/posts/${id}`); $('#editorTitle').textContent = `编辑文章：${post.title}`; postForm.id.value = post.id; postForm.title.value = post.title || ''; postForm.slug.value = post.slug || ''; postForm.category.value = post.category || ''; postForm.tags.value = Array.isArray(post.tags) ? post.tags.join(',') : (post.tags || ''); updateArticleTaxonomyUI(); postForm.cover.value = post.cover || ''; postForm.excerpt.value = post.excerpt || ''; postForm.seo_title.value = post.seo_title || ''; postForm.seo_description.value = post.seo_description || ''; postForm.seo_image.value = post.seo_image || ''; postForm.seo_noindex.checked = Boolean(post.seo_noindex); postForm.content.value = post.content || ''; setBlocksFromMarkdown('post', post.content || ''); postForm.status.value = post.status || 'published'; renderPostPreview(); setAutosaveStatus(localStorage.getItem(autosaveKey()) ? '有自动草稿可恢复' : '左写右看'); switchTab('posts'); postForm.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 async function removePost(id) { if (!confirm('确定删除这篇文章吗？')) return; await api(`/api/admin/posts/${id}`, { method: 'DELETE' }); $('#postMsg').textContent = '已删除。'; await loadPosts(); await loadSettings(); showIsland('文章已删除'); }
-function resetPostForm() { postForm.reset(); postForm.id.value = ''; setCurrentPostTags([]); updateArticleTaxonomyUI(); setBlocksFromMarkdown('post', ''); $('#editorTitle').textContent = '新建文章'; $('#postMsg').textContent = ''; renderPostPreview(); }
-async function savePost(e) { e.preventDefault(); syncBlocksToContent('post'); postForm.category.value = normalizeCategoryInput(postForm.category.value); setCurrentPostTags(currentPostTags()); ensureTaxonomy(postForm.category.value, currentPostTags()); const data = formDataToObject(postForm); const id = data.id; delete data.id; try { if (id) { await api(`/api/admin/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }); $('#postMsg').textContent = '文章已更新。'; } else { await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(data) }); $('#postMsg').textContent = '文章已创建。'; resetPostForm(); } await loadPosts(); await loadSettings(); markSaved(); showIsland('文章已保存'); } catch (err) { $('#postMsg').textContent = err.message; } }
+function resetPostForm() { localStorage.removeItem(autosaveKey()); postForm.reset(); postForm.id.value = ''; setCurrentPostTags([]); updateArticleTaxonomyUI(); setBlocksFromMarkdown('post', ''); $('#editorTitle').textContent = '新建文章'; $('#postMsg').textContent = ''; setAutosaveStatus('左写右看'); renderPostPreview(); }
+async function savePost(e) { e.preventDefault(); syncBlocksToContent('post'); postForm.category.value = normalizeCategoryInput(postForm.category.value); setCurrentPostTags(currentPostTags()); ensureTaxonomy(postForm.category.value, currentPostTags()); const data = postDataToObject(); const id = data.id; delete data.id; try { if (id) { await api(`/api/admin/posts/${id}`, { method: 'PUT', body: JSON.stringify(data) }); $('#postMsg').textContent = '文章已更新。'; } else { await api('/api/admin/posts', { method: 'POST', body: JSON.stringify(data) }); $('#postMsg').textContent = '文章已创建。'; resetPostForm(); } localStorage.removeItem(autosaveKey()); await loadPosts(); await loadSettings(); markSaved(); showIsland('文章已保存'); } catch (err) { $('#postMsg').textContent = err.message; } }
 
 async function loadPages() { const data = await api('/api/admin/pages'); pages = data.pages || []; renderPageTable(); updateSummary(); }
 function renderPageTable() { $('#pageTable').innerHTML = pages.length ? pages.map(p => `<div class="admin-post-row page-row reveal-up in-view"><div><h3>${escapeHtml(p.title)}</h3><p class="muted">${escapeHtml(p.status)} · ${fmtDate(p.created_at)} · 模板：${escapeHtml(p.template || 'standard')} · ${cleanPath(p.slug)}</p></div><div class="row-actions"><a class="small-btn" href="${cleanPath(p.slug)}" target="_blank">查看</a><button data-page-edit="${p.id}">编辑</button><button class="danger" data-page-delete="${p.id}">删除</button></div></div>`).join('') : '<p class="muted">暂无页面。</p>'; $$('[data-page-edit]').forEach(btn => btn.addEventListener('click', () => editPage(btn.dataset.pageEdit))); $$('[data-page-delete]').forEach(btn => btn.addEventListener('click', () => removePage(btn.dataset.pageDelete))); }
@@ -684,9 +724,12 @@ async function loadSystemCheck() {
       ['图片桶', system.supabase_bucket || '-'],
       ['上传上限', `${system.max_upload_mb || 5} MB`],
       ['后台入口', system.admin_path_configured || '-'],
-      ['推荐运行时', system.package_runtime || '-']
+      ['推荐运行时', system.package_runtime || '-'],
+      ['近 7 天访问', `${system.visits_7d || 0}`],
+      ['近 7 天热门路径', system.top_path_7d || '-']
     ];
     wrap.innerHTML = rows.map(([k, v]) => `<div class="system-check-item card-lite"><small>${escapeHtml(k)}</small><b>${escapeHtml(v)}</b></div>`).join('');
+    await loadVisitStats();
     if (msg) msg.textContent = '检查完成。';
   } catch (err) {
     wrap.innerHTML = '<p class="muted">系统检查加载失败。</p>';
@@ -694,10 +737,64 @@ async function loadSystemCheck() {
   }
 }
 
+async function loadVisitStats() {
+  const wrap = $('#visitStatsTable');
+  if (!wrap) return;
+  const { stats } = await api('/api/admin/stats?days=14');
+  const top = stats.top_paths || [];
+  const days = stats.days || [];
+  const latest = days.slice(-7).map(d => `${d.date.slice(5)}：${d.count}`).join(' · ') || '暂无数据';
+  wrap.innerHTML = [
+    ['近 14 天总访问', stats.total || 0],
+    ['最近 7 天趋势', latest],
+    ['热门页面', top.length ? top.slice(0, 5).map(p => `${p.path} (${p.count})`).join('；') : '暂无数据']
+  ].map(([k, v]) => `<div class="system-check-item card-lite"><small>${escapeHtml(k)}</small><b>${escapeHtml(v)}</b></div>`).join('');
+}
+
+async function exportBackup() {
+  const res = await fetch('/api/admin/backup', { cache: 'no-store' });
+  if (!res.ok) throw new Error('导出失败');
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `shoe-blog-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  $('#backupMsg').textContent = '备份已导出。';
+}
+
+async function importBackupFile(file) {
+  if (!file) return;
+  if (!confirm('导入会覆盖当前文章、页面、评论和站点设置。确定继续吗？')) return;
+  const text = await file.text();
+  const data = JSON.parse(text);
+  await api('/api/admin/backup/import', { method: 'POST', body: JSON.stringify(data) });
+  $('#backupMsg').textContent = '导入完成，正在刷新后台数据。';
+  await checkLogin();
+  showIsland('备份导入完成');
+}
+
 function resetPageForm() { pageForm.reset(); pageForm.id.value = ''; pageForm.sort_order.value = '0'; setBlocksFromMarkdown('page', ''); $('#pageEditorTitle').textContent = '新建页面'; $('#pageMsg').textContent = ''; renderPagePreview(); }
 async function savePage(e) { e.preventDefault(); syncBlocksToContent('page'); const data = formDataToObject(pageForm); const id = data.id; delete data.id; try { if (id) { await api(`/api/admin/pages/${id}`, { method: 'PUT', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已更新。'; } else { await api('/api/admin/pages', { method: 'POST', body: JSON.stringify(data) }); $('#pageMsg').textContent = '页面已创建。'; resetPageForm(); } await loadPages(); await loadSettings(); markSaved(); showIsland('页面已保存'); } catch (err) { $('#pageMsg').textContent = err.message; } }
 
-async function uploadImage(fileInput, msgEl, folder = 'posts') { const file = fileInput?.files?.[0]; if (!file) throw new Error('请先选择一张图片'); const form = new FormData(); form.append('image', file); form.append('folder', folder); msgEl.textContent = '正在上传...'; const res = await fetch('/api/admin/upload', { method: 'POST', body: form }); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || '上传失败'); msgEl.textContent = data.warning ? `上传成功：${data.warning}` : '上传成功。'; return data.url; }
+async function compressImageFile(file) {
+  if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type)) return file;
+  const bitmap = await createImageBitmap(file);
+  const maxSide = 1800;
+  const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+  if (!blob || blob.size >= file.size) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, '.webp'), { type: 'image/webp' });
+}
+async function uploadImage(fileInput, msgEl, folder = 'posts') { const rawFile = fileInput?.files?.[0]; if (!rawFile) throw new Error('请先选择一张图片'); msgEl.textContent = '正在压缩图片...'; const file = await compressImageFile(rawFile); const form = new FormData(); form.append('image', file); form.append('folder', folder); msgEl.textContent = file !== rawFile ? `已压缩 ${Math.round(rawFile.size / 1024)}KB → ${Math.round(file.size / 1024)}KB，正在上传...` : '正在上传...'; const res = await fetch('/api/admin/upload', { method: 'POST', body: form }); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || '上传失败'); msgEl.textContent = data.warning ? `上传成功：${data.warning}` : '上传成功。'; return data.url; }
 function insertAtEnd(textarea, text, cb) { const before = textarea.value.trimEnd(); textarea.value = before ? `${before}\n\n${text}\n` : `${text}\n`; textarea.focus(); cb?.(); }
 async function handleCoverUpload() { const msg = $('#coverUploadMsg'); try { postForm.cover.value = await uploadImage($('#coverUpload'), msg, 'covers'); renderPostPreview(); } catch (err) { msg.textContent = err.message; } }
 async function handleContentUpload() { const msg = $('#contentUploadMsg'); try { const url = await uploadImage($('#contentUpload'), msg, 'posts'); addBlock('post', 'image', { src: url, alt: '文章图片' }); renderPostPreview(); } catch (err) { msg.textContent = err.message; } }
@@ -714,13 +811,15 @@ $('#logoutBtn').addEventListener('click', async () => { await api('/api/auth/log
 $$('[data-admin-tab]').forEach(btn => btn.addEventListener('click', () => switchTab(btn.dataset.adminTab)));
 const previewPostFast = debounce(() => { markDirty(); renderPostPreview(); }, 120);
 const previewPageFast = debounce(() => { markDirty(); renderPagePreview(); }, 120);
-$('#newPostBtn')?.addEventListener('click', resetPostForm); $('#resetBtn')?.addEventListener('click', resetPostForm); postForm?.addEventListener('submit', savePost); postForm?.addEventListener('input', previewPostFast);
+$('#newPostBtn')?.addEventListener('click', resetPostForm); $('#resetBtn')?.addEventListener('click', resetPostForm); $('#restorePostDraftBtn')?.addEventListener('click', restorePostAutosave); postForm?.addEventListener('submit', savePost); postForm?.addEventListener('input', e => { previewPostFast(); savePostAutosaveFast(); });
 $('#newPageBtn')?.addEventListener('click', resetPageForm); $('#resetPageBtn')?.addEventListener('click', resetPageForm); pageForm?.addEventListener('submit', savePage); pageForm?.addEventListener('input', previewPageFast);
 $('#insertPostVideoBtn')?.addEventListener('click', () => addBlock('post', 'video', { title: '外部视频', ratio: '16:9' })); $('#insertPageVideoBtn')?.addEventListener('click', () => addBlock('page', 'video', { title: '外部视频', ratio: '16:9' }));
 $('#coverUploadBtn')?.addEventListener('click', handleCoverUpload); $('#contentUploadBtn')?.addEventListener('click', handleContentUpload); $('#pageCoverUploadBtn')?.addEventListener('click', handlePageCoverUpload); $('#pageContentUploadBtn')?.addEventListener('click', handlePageContentUpload); $('#avatarUploadBtn')?.addEventListener('click', handleAvatarUpload); $('#logoUploadBtn')?.addEventListener('click', handleLogoUpload);
 $('#addHomeCardBtn')?.addEventListener('click', addHomeCard); $('#addHeaderNavBtn')?.addEventListener('click', () => addListItem('header_nav_links')); $('#addNavLinkBtn')?.addEventListener('click', () => addListItem('nav_links')); $('#addProjectCardBtn')?.addEventListener('click', () => addListItem('project_cards')); $('#addFriendLinkBtn')?.addEventListener('click', () => addListItem('friend_links')); $('#addMusicBtn')?.addEventListener('click', () => addListItem('music_playlist'));
 $('#refreshCommentsBtn')?.addEventListener('click', () => loadComments());
 $('#refreshSystemBtn')?.addEventListener('click', () => loadSystemCheck());
+$('#exportBackupBtn')?.addEventListener('click', () => exportBackup().catch(err => { $('#backupMsg').textContent = err.message; }));
+$('#importBackupInput')?.addEventListener('change', e => importBackupFile(e.target.files?.[0]).catch(err => { $('#backupMsg').textContent = err.message; }));
 $('#commentSearchInput')?.addEventListener('input', renderCommentTable);
 $('#commentStatusFilter')?.addEventListener('change', renderCommentTable);
 settingsForm?.addEventListener('input', applyPreviewCustomStyles);

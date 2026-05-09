@@ -77,7 +77,8 @@ function rowToPost(row) {
       .split(',')
       .map(t => t.trim())
       .filter(Boolean),
-    views: Number(row.views || 0)
+    views: Number(row.views || 0),
+    seo_noindex: row.seo_noindex === true || row.seo_noindex === 'true'
   };
 }
 
@@ -141,6 +142,7 @@ function baseStore() {
     posts: [],
     comments: [],
     pages: [],
+    visits: [],
     seq: { users: 1, posts: 1, comments: 1, pages: 1 }
   };
 }
@@ -155,6 +157,13 @@ async function loadStore() {
   const raw = await fs.readFile(JSON_DB_PATH, 'utf8');
   store = { ...baseStore(), ...JSON.parse(raw) };
   store.seq = { ...baseStore().seq, ...(store.seq || {}) };
+  store.posts = (store.posts || []).map(p => ({
+    seo_title: '',
+    seo_description: '',
+    seo_image: '',
+    seo_noindex: false,
+    ...p
+  }));
   store.comments = (store.comments || []).map(c => ({
     status: 'approved',
     moderation_reason: '',
@@ -187,6 +196,10 @@ async function createTables() {
       category TEXT NOT NULL DEFAULT '随笔',
       tags TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'published',
+      seo_title TEXT NOT NULL DEFAULT '',
+      seo_description TEXT NOT NULL DEFAULT '',
+      seo_image TEXT NOT NULL DEFAULT '',
+      seo_noindex BOOLEAN NOT NULL DEFAULT FALSE,
       views INTEGER NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -216,6 +229,16 @@ async function createTables() {
       user_agent TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS visit_stats (
+      date TEXT NOT NULL,
+      path TEXT NOT NULL,
+      count INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (date, path)
+    );
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_title TEXT NOT NULL DEFAULT '';
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_description TEXT NOT NULL DEFAULT '';
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_image TEXT NOT NULL DEFAULT '';
+    ALTER TABLE posts ADD COLUMN IF NOT EXISTS seo_noindex BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS moderation_reason TEXT NOT NULL DEFAULT '';
     ALTER TABLE comments ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT '';
@@ -516,7 +539,7 @@ export async function listPosts({ search = '', category = '', tag = '', includeD
     if (category) { clauses.push('category = ?'); params.push(normalizeCategoryName(category)); }
     if (tag) { clauses.push('tags ILIKE ?'); params.push(`%${normalizeTagName(tag)}%`); }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
-    const rows = await pgAll(`SELECT id, title, slug, excerpt, cover, category, tags, status, views, created_at, updated_at FROM posts ${where} ORDER BY created_at DESC`, params);
+    const rows = await pgAll(`SELECT id, title, slug, excerpt, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at FROM posts ${where} ORDER BY created_at DESC`, params);
     return rows.map(rowToPost);
   }
   const kw = String(search || '').toLowerCase();
@@ -627,12 +650,18 @@ export async function createPost(data) {
     category: normalizeCategoryName(data.category || '随笔'),
     tags: normalizeTags(data.tags),
     status: data.status === 'draft' ? 'draft' : 'published',
+    seo_title: String(data.seo_title || ''),
+    seo_description: String(data.seo_description || ''),
+    seo_image: String(data.seo_image || ''),
+    seo_noindex: Object.prototype.hasOwnProperty.call(data, 'seo_noindex')
+      ? (data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on')
+      : Boolean(current.seo_noindex),
     views: 0,
     created_at: nowISO(),
     updated_at: nowISO()
   };
   if (hasPostgres) {
-    const rows = await pgRun('INSERT INTO posts (title, slug, excerpt, content, cover, category, tags, status, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *', [post.title, post.slug, post.excerpt, post.content, post.cover, post.category, post.tags, post.status, post.views, post.created_at, post.updated_at]);
+    const rows = await pgRun('INSERT INTO posts (title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *', [post.title, post.slug, post.excerpt, post.content, post.cover, post.category, post.tags, post.status, post.seo_title, post.seo_description, post.seo_image, post.seo_noindex, post.views, post.created_at, post.updated_at]);
     await syncTaxonomySettings(post.category, post.tags);
     return rowToPost(rows.rows[0]);
   }
@@ -658,10 +687,14 @@ export async function updatePost(id, data) {
     category: normalizeCategoryName(data.category ?? current.category ?? '随笔'),
     tags: normalizeTags(data.tags ?? current.tags),
     status: data.status === 'draft' ? 'draft' : 'published',
+    seo_title: String(data.seo_title ?? current.seo_title ?? ''),
+    seo_description: String(data.seo_description ?? current.seo_description ?? ''),
+    seo_image: String(data.seo_image ?? current.seo_image ?? ''),
+    seo_noindex: data.seo_noindex === true || data.seo_noindex === 'true' || data.seo_noindex === 'on',
     updated_at: nowISO()
   };
   if (hasPostgres) {
-    const rows = await pgRun('UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, cover = ?, category = ?, tags = ?, status = ?, updated_at = ? WHERE id = ? RETURNING *', [updated.title, updated.slug, updated.excerpt, updated.content, updated.cover, updated.category, updated.tags, updated.status, updated.updated_at, id]);
+    const rows = await pgRun('UPDATE posts SET title = ?, slug = ?, excerpt = ?, content = ?, cover = ?, category = ?, tags = ?, status = ?, seo_title = ?, seo_description = ?, seo_image = ?, seo_noindex = ?, updated_at = ? WHERE id = ? RETURNING *', [updated.title, updated.slug, updated.excerpt, updated.content, updated.cover, updated.category, updated.tags, updated.status, updated.seo_title, updated.seo_description, updated.seo_image, updated.seo_noindex, updated.updated_at, id]);
     await syncTaxonomySettings(updated.category, updated.tags);
     return rowToPost(rows.rows[0]);
   }
@@ -859,5 +892,129 @@ export async function deleteComment(id) {
     store.comments = store.comments.filter(c => Number(c.id) !== Number(id));
     await saveStore();
   }
+  return { ok: true };
+}
+
+export async function recordVisit(pathname = '/') {
+  const pathKey = String(pathname || '/').split('?')[0].slice(0, 240) || '/';
+  const date = new Date().toISOString().slice(0, 10);
+  if (hasPostgres) {
+    await pgRun(
+      'INSERT INTO visit_stats (date, path, count) VALUES (?, ?, 1) ON CONFLICT (date, path) DO UPDATE SET count = visit_stats.count + 1',
+      [date, pathKey]
+    );
+    return;
+  }
+  const row = store.visits.find(v => v.date === date && v.path === pathKey);
+  if (row) row.count = Number(row.count || 0) + 1;
+  else store.visits.push({ date, path: pathKey, count: 1 });
+  await saveStore();
+}
+
+export async function getVisitStats({ days = 14 } = {}) {
+  const safeDays = Math.min(90, Math.max(1, Number(days) || 14));
+  const since = new Date(Date.now() - (safeDays - 1) * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const rows = hasPostgres
+    ? await pgAll('SELECT date, path, count FROM visit_stats WHERE date >= ? ORDER BY date DESC, count DESC', [since])
+    : (store.visits || []).filter(v => v.date >= since).sort((a, b) => b.date.localeCompare(a.date) || Number(b.count || 0) - Number(a.count || 0));
+  const total = rows.reduce((sum, r) => sum + Number(r.count || 0), 0);
+  const byDateMap = new Map();
+  const byPathMap = new Map();
+  rows.forEach(r => {
+    byDateMap.set(r.date, (byDateMap.get(r.date) || 0) + Number(r.count || 0));
+    byPathMap.set(r.path, (byPathMap.get(r.path) || 0) + Number(r.count || 0));
+  });
+  return {
+    total,
+    days: Array.from(byDateMap, ([date, count]) => ({ date, count })).sort((a, b) => a.date.localeCompare(b.date)),
+    top_paths: Array.from(byPathMap, ([path, count]) => ({ path, count })).sort((a, b) => b.count - a.count).slice(0, 10)
+  };
+}
+
+function normalizeBackupPost(post = {}) {
+  return {
+    ...post,
+    tags: normalizeTags(post.tags),
+    seo_title: String(post.seo_title || ''),
+    seo_description: String(post.seo_description || ''),
+    seo_image: String(post.seo_image || ''),
+    seo_noindex: post.seo_noindex === true || post.seo_noindex === 'true'
+  };
+}
+
+export async function exportBackup() {
+  if (hasPostgres) {
+    return {
+      version: 1,
+      exported_at: nowISO(),
+      settings: await getSettingsObject(),
+      posts: (await pgAll('SELECT * FROM posts ORDER BY id', [])).map(rowToPost),
+      pages: (await pgAll('SELECT * FROM pages ORDER BY id', [])).map(rowToPage),
+      comments: await pgAll('SELECT * FROM comments ORDER BY id', []),
+      visits: await pgAll('SELECT * FROM visit_stats ORDER BY date, path', [])
+    };
+  }
+  return {
+    version: 1,
+    exported_at: nowISO(),
+    settings: { ...store.settings },
+    posts: (store.posts || []).map(rowToPost),
+    pages: (store.pages || []).map(rowToPage),
+    comments: [...(store.comments || [])],
+    visits: [...(store.visits || [])]
+  };
+}
+
+export async function importBackup(data = {}) {
+  const settings = data.settings && typeof data.settings === 'object' ? data.settings : {};
+  const posts = Array.isArray(data.posts) ? data.posts.map(normalizeBackupPost) : [];
+  const pages = Array.isArray(data.pages) ? data.pages : [];
+  const comments = Array.isArray(data.comments) ? data.comments : [];
+  const visits = Array.isArray(data.visits) ? data.visits : [];
+  if (hasPostgres) {
+    const client = await pool.connect();
+    const run = (sql, params = []) => client.query(convertPlaceholders(sql), params);
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM comments');
+      await client.query('DELETE FROM posts');
+      await client.query('DELETE FROM pages');
+      await client.query('DELETE FROM settings');
+      await client.query('DELETE FROM visit_stats');
+      for (const [key, value] of Object.entries(settings)) await run('INSERT INTO settings (key, value) VALUES (?, ?)', [key, String(value ?? '')]);
+      for (const p of posts) {
+        await run('INSERT INTO posts (id, title, slug, excerpt, content, cover, category, tags, status, seo_title, seo_description, seo_image, seo_noindex, views, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [p.id, p.title, p.slug, p.excerpt || '', p.content || '', p.cover || '', normalizeCategoryName(p.category || '随笔'), p.tags || '', p.status === 'draft' ? 'draft' : 'published', p.seo_title || '', p.seo_description || '', p.seo_image || '', Boolean(p.seo_noindex), Number(p.views || 0), p.created_at || nowISO(), p.updated_at || nowISO()]);
+      }
+      for (const p of pages) {
+        await run('INSERT INTO pages (id, title, slug, summary, content, cover, template, status, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [p.id, p.title, p.slug, p.summary || '', p.content || '', p.cover || '', p.template || 'standard', p.status === 'draft' ? 'draft' : 'published', Number(p.sort_order || 0), p.created_at || nowISO(), p.updated_at || nowISO()]);
+      }
+      for (const c of comments) {
+        await run('INSERT INTO comments (id, post_id, name, email, content, status, moderation_reason, ip, user_agent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [c.id, c.post_id, c.name || '匿名', c.email || '', c.content || '', c.status || 'approved', c.moderation_reason || '', c.ip || '', c.user_agent || '', c.created_at || nowISO()]);
+      }
+      for (const v of visits) await run('INSERT INTO visit_stats (date, path, count) VALUES (?, ?, ?)', [v.date, v.path || '/', Number(v.count || 0)]);
+      await client.query("SELECT setval(pg_get_serial_sequence('posts','id'), COALESCE((SELECT MAX(id) FROM posts), 1), true)");
+      await client.query("SELECT setval(pg_get_serial_sequence('pages','id'), COALESCE((SELECT MAX(id) FROM pages), 1), true)");
+      await client.query("SELECT setval(pg_get_serial_sequence('comments','id'), COALESCE((SELECT MAX(id) FROM comments), 1), true)");
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+    return { ok: true };
+  }
+  store.settings = { ...settings };
+  store.posts = posts;
+  store.pages = pages;
+  store.comments = comments;
+  store.visits = visits;
+  store.seq = {
+    ...store.seq,
+    posts: Math.max(0, ...posts.map(p => Number(p.id) || 0)) + 1,
+    pages: Math.max(0, ...pages.map(p => Number(p.id) || 0)) + 1,
+    comments: Math.max(0, ...comments.map(c => Number(c.id) || 0)) + 1
+  };
+  await saveStore();
   return { ok: true };
 }

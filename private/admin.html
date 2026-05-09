@@ -81,7 +81,7 @@
             <section class="admin-card pane-card editor-card">
               <div class="editor-header">
                 <div><p class="eyebrow">Post Editor</p><h2 id="editorTitle">新建文章</h2></div>
-                <span class="editor-hint">左写右看</span>
+                <span class="editor-hint" id="postAutosaveStatus">左写右看</span>
               </div>
               <form id="postForm" class="form-grid">
                 <input type="hidden" name="id" />
@@ -105,6 +105,14 @@
                 <label>封面图 URL<input name="cover" placeholder="https://..." /></label>
                 <div class="upload-box"><div><b>上传封面图</b><p class="muted">建议压缩到 300KB～800KB。</p></div><div class="upload-row"><input id="coverUpload" type="file" accept="image/*" /><button id="coverUploadBtn" class="ghost" type="button">上传并设为封面</button></div><p id="coverUploadMsg" class="message"></p></div>
                 <label>摘要<textarea name="excerpt" rows="3" placeholder="显示在首页的短摘要"></textarea></label>
+                <div class="settings-module full-line">
+                  <h3>SEO 设置</h3>
+                  <p class="muted">不填时会自动使用文章标题、摘要和封面图。</p>
+                  <label>SEO 标题<input name="seo_title" placeholder="搜索结果和分享卡片标题" /></label>
+                  <label>SEO 描述<textarea name="seo_description" rows="3" placeholder="建议 80～160 字"></textarea></label>
+                  <label>SEO 分享图<input name="seo_image" placeholder="https://...；不填则使用封面图" /></label>
+                  <label><input type="checkbox" name="seo_noindex" value="true"> 不允许搜索引擎索引这篇文章</label>
+                </div>
                 <textarea name="content" class="hidden" aria-hidden="true"></textarea>
                 <section class="block-editor" data-block-editor="post">
                   <div class="block-editor-head">
@@ -122,7 +130,7 @@
                   <div class="upload-box"><div><b>上传图片并插入为图片模块</b><p class="muted">先选中某个模块，再上传；图片会插入到选中模块后面。没有选中时插入到最后。</p></div><div class="upload-row"><input id="contentUpload" type="file" accept="image/*" /><button id="contentUploadBtn" class="ghost" type="button">上传并插入图片模块</button></div><p id="contentUploadMsg" class="message"></p></div>
                 </section>
                 <label>状态<select name="status"><option value="published">发布</option><option value="draft">草稿</option></select></label>
-                <div class="button-row"><button class="primary" type="submit">保存文章</button><button id="resetBtn" class="ghost" type="button">清空表单</button></div>
+                <div class="button-row"><button class="primary" type="submit">保存文章</button><button id="restorePostDraftBtn" class="ghost" type="button">恢复自动草稿</button><button id="resetBtn" class="ghost" type="button">清空表单</button></div>
               </form>
               <p id="postMsg" class="message"></p>
             </section>
@@ -219,7 +227,7 @@
           <section class="admin-card pane-card settings-card settings-form-pane">
             <div class="admin-head"><div><h2>站点设置</h2><p class="muted">网站标题、Logo、颜色主题、自由排版、首页卡片、页眉导航、快捷导航、项目、友链和音乐播放器。</p></div></div>
             <form id="settingsForm" class="form-grid settings-grid">
-              <div class="settings-module full-line"><h3>基础设置</h3><div class="settings-two"><label>网站标题<input name="site_title" /></label><label>Logo 文字<input name="logo_text" /></label></div><label>Logo 图片 URL<input name="logo_url" placeholder="https://..." /></label><div class="upload-box"><div><b>上传网站 Logo</b><p class="muted">建议透明 PNG 或 SVG。</p></div><div class="upload-row"><input id="logoUpload" type="file" accept="image/*" /><button id="logoUploadBtn" class="ghost" type="button">上传并设为 Logo</button></div><p id="logoUploadMsg" class="message"></p></div></div>
+              <div class="settings-module full-line"><h3>基础设置</h3><div class="settings-two"><label>网站标题<input name="site_title" /></label><label>Logo 文字<input name="logo_text" /></label></div><label>Logo 图片 URL<input name="logo_url" placeholder="https://..." /></label><div class="upload-box"><div><b>上传网站 Logo</b><p class="muted">建议透明 PNG 或 WebP。</p></div><div class="upload-row"><input id="logoUpload" type="file" accept="image/*" /><button id="logoUploadBtn" class="ghost" type="button">上传并设为 Logo</button></div><p id="logoUploadMsg" class="message"></p></div></div>
 
               <div class="settings-module full-line"><h3>颜色主题切换模块</h3><p class="muted">设置网站默认配色，访客也能在前台自行切换。</p><div class="theme-preset-grid"><label class="theme-option"><input type="radio" name="theme_preset" value="hyper-blue"><span style="--swatch:#5668ff">Hyper Blue</span></label><label class="theme-option"><input type="radio" name="theme_preset" value="sakura"><span style="--swatch:#ff7ab6">Sakura</span></label><label class="theme-option"><input type="radio" name="theme_preset" value="matcha"><span style="--swatch:#37b879">Matcha</span></label><label class="theme-option"><input type="radio" name="theme_preset" value="sunset"><span style="--swatch:#ff8a4c">Sunset</span></label><label class="theme-option"><input type="radio" name="theme_preset" value="aurora"><span style="--swatch:#8b5cf6">Aurora</span></label><label class="theme-option"><input type="radio" name="theme_preset" value="night"><span style="--swatch:#38bdf8">Night</span></label></div></div>
 
@@ -317,6 +325,20 @@
               <button id="refreshSystemBtn" class="ghost" type="button">刷新检查</button>
             </div>
             <div id="systemCheckTable" class="system-check-grid"></div>
+            <div class="settings-module full-line">
+              <h3>访问统计</h3>
+              <p class="muted">统计最近 14 天页面访问量，不记录个人身份。</p>
+              <div id="visitStatsTable" class="system-check-grid"></div>
+            </div>
+            <div class="settings-module full-line">
+              <h3>备份 / 导入导出</h3>
+              <p class="muted">导出会包含站点设置、文章、页面、评论和访问统计。导入会覆盖当前内容，请先导出当前备份。</p>
+              <div class="button-row">
+                <button id="exportBackupBtn" class="ghost" type="button">导出 JSON 备份</button>
+                <label class="ghost import-backup-label">导入 JSON 备份<input id="importBackupInput" class="hidden" type="file" accept="application/json,.json" /></label>
+              </div>
+              <p id="backupMsg" class="message"></p>
+            </div>
             <p id="systemCheckMsg" class="message"></p>
           </section>
         </div>

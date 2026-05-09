@@ -483,6 +483,50 @@ async function loadSite() {
 function setTitle(title) {
   const base = site?.settings?.site_title || 'Argon Lite Blog';
   document.title = title ? `${title} - ${base}` : base;
+  setMeta?.('meta[name="robots"]', 'content', '');
+  setCanonical?.(absoluteUrl(location.pathname || '/'));
+}
+function setMeta(selector, attr, value) {
+  let el = document.head.querySelector(selector);
+  if (!value) {
+    el?.remove();
+    return;
+  }
+  if (!el) {
+    el = document.createElement('meta');
+    const nameMatch = selector.match(/meta\[name="([^"]+)"\]/);
+    const propertyMatch = selector.match(/meta\[property="([^"]+)"\]/);
+    if (nameMatch) el.setAttribute('name', nameMatch[1]);
+    if (propertyMatch) el.setAttribute('property', propertyMatch[1]);
+    document.head.appendChild(el);
+  }
+  el.setAttribute(attr, value);
+}
+function setCanonical(url = '') {
+  let el = document.head.querySelector('link[rel="canonical"]');
+  if (!url) { el?.remove(); return; }
+  if (!el) {
+    el = document.createElement('link');
+    el.rel = 'canonical';
+    document.head.appendChild(el);
+  }
+  el.href = url;
+}
+function absoluteUrl(path = '/') {
+  try { return new URL(path || '/', location.origin).toString(); } catch { return location.href; }
+}
+function applySeo({ title = '', description = '', image = '', path = location.pathname, noindex = false } = {}) {
+  const base = site?.settings?.site_title || 'Argon Lite Blog';
+  const fullTitle = title ? `${title} - ${base}` : base;
+  document.title = fullTitle;
+  setMeta('meta[name="description"]', 'content', description || site?.settings?.site_subtitle || '');
+  setMeta('meta[property="og:title"]', 'content', fullTitle);
+  setMeta('meta[property="og:description"]', 'content', description || '');
+  setMeta('meta[property="og:type"]', 'content', title ? 'article' : 'website');
+  setMeta('meta[property="og:url"]', 'content', absoluteUrl(path));
+  setMeta('meta[property="og:image"]', 'content', image ? absoluteUrl(image) : '');
+  setMeta('meta[name="robots"]', 'content', noindex ? 'noindex,nofollow' : '');
+  setCanonical(absoluteUrl(path));
 }
 function renderTaxonomies(tax) {
   const catWrap = $('#categoryList');
@@ -539,7 +583,13 @@ async function renderPost(slug) {
   const nextPost = idx > 0 ? allPosts[idx - 1] : null;
   const licenseText = site?.settings?.license_text || '本文由站点作者原创或整理发布，转载请注明来源。';
   const tags = (post.tags || []).map(t => `<a class="tag" href="${tagHref(t)}">${escapeHtml(tagLabel(t))}</a>`).join('');
-  setTitle(post.title);
+  applySeo({
+    title: post.seo_title || post.title,
+    description: post.seo_description || post.excerpt || '',
+    image: post.seo_image || post.cover || '',
+    path: postHref(post.slug),
+    noindex: Boolean(post.seo_noindex)
+  });
   const licenseHtml = isModuleVisible('license') ? `<section class="card license-box reveal-up in-view"><b>版权说明</b><p>${escapeHtml(licenseText)}</p></section>` : '';
   const navHtml = isModuleVisible('post_nav') ? `<section class="post-nav reveal-up in-view">${prevPost ? `<a class="card post-nav-card" href="${postHref(prevPost.slug)}"><small>上一篇</small><b>${escapeHtml(prevPost.title)}</b></a>` : '<span></span>'}${nextPost ? `<a class="card post-nav-card" href="${postHref(nextPost.slug)}"><small>下一篇</small><b>${escapeHtml(nextPost.title)}</b></a>` : '<span></span>'}</section>` : '';
   const commentsHtml = isModuleVisible('comments') ? `<section class="card comments reveal-up in-view"><h3>评论</h3><form id="commentForm" class="form-grid"><input type="hidden" name="post_id" value="${post.id}"><input type="hidden" name="captcha_token"><div class="two-col"><label>昵称<input name="name" required placeholder="怎么称呼你"></label><label>邮箱<input name="email" placeholder="可不填"></label></div><label>评论内容<textarea name="content" rows="4" required placeholder="写点什么吧"></textarea></label><div class="captcha-row"><div class="captcha-question"><span>验证码：</span><b id="captchaQuestion">加载中...</b></div><label class="captcha-answer">答案<input name="captcha_answer" inputmode="numeric" pattern="[0-9]*" required placeholder="填数字"></label><button id="refreshCaptchaBtn" class="ghost" type="button">刷新验证码</button></div><div class="button-row"><button class="primary" type="submit">提交评论</button></div><p id="commentMsg" class="message"></p></form><div id="commentList">${commentListHtml(post.comments || [])}</div></section>` : '';
@@ -552,7 +602,7 @@ async function renderPost(slug) {
 }
 async function renderPage(slug) {
   const { page } = await api(`/api/pages/${encodeURIComponent(slug)}`);
-  setTitle(page.title);
+  applySeo({ title: page.title, description: page.summary || '', image: page.cover || '', path: postHref(page.slug) });
   const template = ['standard', 'landing', 'narrow'].includes(page.template) ? page.template : 'standard';
   app.innerHTML = `<article class="card page-full reveal-up in-view template-${escapeHtml(template)}">${page.cover ? `<img class="article-cover" src="${escapeHtml(page.cover)}" alt="${escapeHtml(page.title)}">` : ''}<header class="page-hero"><small class="page-type-label">独立页面</small><h1>${escapeHtml(page.title)}</h1>${page.summary ? `<p class="muted">${escapeHtml(page.summary)}</p>` : ''}</header><div class="post-content page-content">${renderMarkdown(page.content || '')}</div><div class="post-bottom"><section class="card license-box reveal-up in-view"><b>页面说明</b><p>这是独立页面，不进入文章列表，也没有文章分类、标签和评论区。</p></section></div></article>`;
   afterRender();
