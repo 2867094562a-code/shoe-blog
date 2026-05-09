@@ -201,6 +201,12 @@
             </div>
             <div class="comment-admin-tools">
               <input id="commentSearchInput" type="search" placeholder="搜索昵称、内容、文章标题..." />
+              <select id="commentStatusFilter" aria-label="评论状态筛选">
+                <option value="">全部状态</option>
+                <option value="pending">待审核</option>
+                <option value="approved">已通过</option>
+                <option value="spam">已屏蔽</option>
+              </select>
               <span class="muted" id="commentCountText">0 条评论</span>
             </div>
             <div id="commentTable" class="admin-list comment-admin-list"></div>
@@ -256,6 +262,16 @@
                 <div class="taxonomy-panel" data-tax-panel="tags">
                   <div class="taxonomy-add-row"><input id="newTagInput" placeholder="输入 #标签，例如 #部署" /><button id="addTagBtn" class="ghost" type="button">新增标签</button></div>
                   <div id="tagEditorList" class="taxonomy-editor-list"></div>
+                </div>
+              </div>
+
+              <div class="settings-module full-line">
+                <h3>评论防护</h3>
+                <p class="muted">开启后，命中违禁词的评论会进入待审核；命中黑名单的昵称、邮箱或 IP 会被直接拦截。</p>
+                <label><input type="checkbox" name="comment_moderation_enabled" value="true"> 启用评论自动审核</label>
+                <div class="settings-two">
+                  <label>违禁词列表<textarea name="comment_bad_words" rows="6" placeholder="一行一个，例如：广告&#10;代刷&#10;博彩"></textarea></label>
+                  <label>黑名单列表<textarea name="comment_blacklist" rows="6" placeholder="一行一个，可填 IP、邮箱、昵称关键词"></textarea></label>
                 </div>
               </div>
 

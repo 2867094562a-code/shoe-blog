@@ -72,6 +72,11 @@ function normalizeSlug(value = '') { return String(value || '').trim().replace(/
 function cleanPath(value = '') { const slug = normalizeSlug(value); return slug ? `/${slug}` : '/'; }
 function normalizeLink(link = '') { const raw = String(link || '').trim(); if (!raw) return '#'; if (/^(https?:|mailto:|tel:|#)/i.test(raw)) return raw; return raw.startsWith('/') ? raw : `/${raw}`; }
 function formDataToObject(form) { return Object.fromEntries(new FormData(form).entries()); }
+function settingsDataToObject() {
+  const data = formDataToObject(settingsForm);
+  data.comment_moderation_enabled = settingsForm?.elements?.comment_moderation_enabled?.checked ? 'true' : 'false';
+  return data;
+}
 async function api(path, options = {}) { const res = await fetch(path, { cache: 'no-store', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, ...options }); const data = await res.json().catch(() => ({})); if (!res.ok) throw new Error(data.error || '请求失败'); return data; }
 
 function debounce(fn, delay = 120) {
@@ -606,24 +611,47 @@ function renderCommentTable() {
   const count = $('#commentCountText');
   if (!wrap) return;
   const keyword = String($('#commentSearchInput')?.value || '').trim().toLowerCase();
-  const list = comments.filter(c => !keyword || `${c.name || ''} ${c.email || ''} ${c.content || ''} ${c.post_title || ''}`.toLowerCase().includes(keyword));
+  const status = String($('#commentStatusFilter')?.value || '');
+  const list = comments
+    .filter(c => !status || (c.status || 'approved') === status)
+    .filter(c => !keyword || `${c.name || ''} ${c.email || ''} ${c.content || ''} ${c.post_title || ''} ${c.ip || ''}`.toLowerCase().includes(keyword));
   if (count) count.textContent = `${list.length} / ${comments.length} 条评论`;
   wrap.innerHTML = list.length ? list.map(c => `
-    <div class="admin-comment-row card-lite">
+    <div class="admin-comment-row card-lite comment-status-${escapeHtml(c.status || 'approved')}">
       <div class="comment-row-main">
         <div class="comment-row-head">
           <b>${escapeHtml(c.name || '匿名')}</b>
-          <small class="muted">${fmtDate(c.created_at)} · ${escapeHtml(c.email || '未留邮箱')}</small>
+          <small class="muted">${fmtDate(c.created_at)} · ${escapeHtml(c.email || '未留邮箱')} · ${escapeHtml(c.ip || '未知 IP')}</small>
         </div>
+        <p><span class="status-pill">${escapeHtml(commentStatusLabel(c.status))}</span>${c.moderation_reason ? ` <small class="muted">${escapeHtml(c.moderation_reason)}</small>` : ''}</p>
         <p>${escapeHtml(c.content || '')}</p>
         <p class="muted">文章：${c.post_slug ? `<a href="${cleanPath(c.post_slug)}" target="_blank">${escapeHtml(c.post_title || c.post_slug)}</a>` : escapeHtml(c.post_title || '已删除文章')}</p>
       </div>
       <div class="row-actions">
         ${c.post_slug ? `<a class="small-btn" href="${cleanPath(c.post_slug)}" target="_blank">查看文章</a>` : ''}
+        ${(c.status || 'approved') !== 'approved' ? `<button type="button" data-comment-status="${c.id}" data-status="approved">通过</button>` : ''}
+        ${(c.status || 'approved') !== 'pending' ? `<button type="button" data-comment-status="${c.id}" data-status="pending">待审核</button>` : ''}
+        ${(c.status || 'approved') !== 'spam' ? `<button class="danger" type="button" data-comment-status="${c.id}" data-status="spam">屏蔽</button>` : ''}
         <button class="danger" type="button" data-comment-delete="${c.id}">删除评论</button>
       </div>
     </div>`).join('') : '<p class="muted">暂无评论。</p>';
   $$('[data-comment-delete]', wrap).forEach(btn => btn.addEventListener('click', () => removeComment(btn.dataset.commentDelete)));
+  $$('[data-comment-status]', wrap).forEach(btn => btn.addEventListener('click', () => changeCommentStatus(btn.dataset.commentStatus, btn.dataset.status)));
+}
+function commentStatusLabel(status = 'approved') {
+  return status === 'pending' ? '待审核' : status === 'spam' ? '已屏蔽' : '已通过';
+}
+async function changeCommentStatus(id, status) {
+  try {
+    await api(`/api/admin/comments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) });
+    const comment = comments.find(c => String(c.id) === String(id));
+    if (comment) comment.status = status;
+    renderCommentTable();
+    $('#commentAdminMsg').textContent = `评论已标记为：${commentStatusLabel(status)}。`;
+    showIsland('评论状态已更新');
+  } catch (err) {
+    $('#commentAdminMsg').textContent = err.message;
+  }
 }
 async function removeComment(id) {
   if (!confirm('确定删除这条评论吗？删除后不可恢复。')) return;
@@ -678,8 +706,8 @@ async function handlePageContentUpload() { const msg = $('#pageContentUploadMsg'
 async function handleAvatarUpload() { const msg = $('#avatarUploadMsg'); try { settingsForm.author_avatar.value = await uploadImage($('#avatarUpload'), msg, 'avatars'); } catch (err) { msg.textContent = err.message; } }
 async function handleLogoUpload() { const msg = $('#logoUploadMsg'); try { settingsForm.logo_url.value = await uploadImage($('#logoUpload'), msg, 'logos'); } catch (err) { msg.textContent = err.message; } }
 
-async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) settingsForm.elements[key].value = value; moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); settingsHomePreviewFast(); initTiltCards(document); }
-async function saveSettings(e) { e.preventDefault(); try { syncHomeCardsInput(); syncTaxonomyInputs(); syncModuleVisibilityInput(); Object.keys(LIST_CONFIG).forEach(syncListInput); const saved = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(formDataToObject(settingsForm)) }); $('#settingsMsg').textContent = '设置已保存。前台刷新后会读取最新设置；已对接口禁用缓存。'; if (saved?.settings) { moduleVisibilityState = parseModuleVisibility(saved.settings.module_visibility); renderVisibilityToggles(); } markSaved(); showIsland('站点设置已保存'); } catch (err) { $('#settingsMsg').textContent = err.message; } }
+async function loadSettings() { const { settings } = await api('/api/admin/settings'); for (const [key, value] of Object.entries(settings)) if (settingsForm.elements[key]) { if (settingsForm.elements[key].type === 'checkbox') settingsForm.elements[key].checked = String(value) !== 'false'; else settingsForm.elements[key].value = value; } moduleVisibilityState = parseModuleVisibility(settings.module_visibility); renderVisibilityToggles(); taxonomyState.categories = categoryListFromValue(settings.taxonomy_categories); taxonomyState.tags = tagListFromValue(settings.taxonomy_tags); posts.forEach(p => ensureTaxonomy(p.category, p.tags || [])); renderTaxonomyEditors(); updateArticleTaxonomyUI(); homeCards = parseHomeCards(settings.home_cards); renderHomeCardEditor(); listState.header_nav_links = parseList(settings.header_nav_links, defaultHeaderNav()); listState.nav_links = parseList(settings.nav_links, defaultNavLinks()); listState.project_cards = parseList(settings.project_cards, defaultProjects()); listState.friend_links = parseList(settings.friend_links, defaultFriends()); listState.music_playlist = parseList(settings.music_playlist, defaultMusic()); Object.keys(LIST_CONFIG).forEach(renderListEditor); applyPreviewCustomStyles(); settingsHomePreviewFast(); initTiltCards(document); }
+async function saveSettings(e) { e.preventDefault(); try { syncHomeCardsInput(); syncTaxonomyInputs(); syncModuleVisibilityInput(); Object.keys(LIST_CONFIG).forEach(syncListInput); const saved = await api('/api/admin/settings', { method: 'PUT', body: JSON.stringify(settingsDataToObject()) }); $('#settingsMsg').textContent = '设置已保存。前台刷新后会读取最新设置；已对接口禁用缓存。'; if (saved?.settings) { moduleVisibilityState = parseModuleVisibility(saved.settings.module_visibility); renderVisibilityToggles(); } markSaved(); showIsland('站点设置已保存'); } catch (err) { $('#settingsMsg').textContent = err.message; } }
 
 $('#loginForm').addEventListener('submit', async e => { e.preventDefault(); $('#loginMsg').textContent = ''; try { await api('/api/auth/login', { method: 'POST', body: JSON.stringify(formDataToObject(e.target)) }); await checkLogin(); } catch (err) { $('#loginMsg').textContent = err.message; } });
 $('#logoutBtn').addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); showLogin(); });
@@ -694,6 +722,7 @@ $('#addHomeCardBtn')?.addEventListener('click', addHomeCard); $('#addHeaderNavBt
 $('#refreshCommentsBtn')?.addEventListener('click', () => loadComments());
 $('#refreshSystemBtn')?.addEventListener('click', () => loadSystemCheck());
 $('#commentSearchInput')?.addEventListener('input', renderCommentTable);
+$('#commentStatusFilter')?.addEventListener('change', renderCommentTable);
 settingsForm?.addEventListener('input', applyPreviewCustomStyles);
 settingsForm?.addEventListener('submit', saveSettings);
 bindVisibilityToggles();

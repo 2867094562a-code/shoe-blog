@@ -155,6 +155,13 @@ async function loadStore() {
   const raw = await fs.readFile(JSON_DB_PATH, 'utf8');
   store = { ...baseStore(), ...JSON.parse(raw) };
   store.seq = { ...baseStore().seq, ...(store.seq || {}) };
+  store.comments = (store.comments || []).map(c => ({
+    status: 'approved',
+    moderation_reason: '',
+    ip: '',
+    user_agent: '',
+    ...c
+  }));
 }
 
 async function createTables() {
@@ -203,8 +210,18 @@ async function createTables() {
       name TEXT NOT NULL,
       email TEXT NOT NULL DEFAULT '',
       content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'approved',
+      moderation_reason TEXT NOT NULL DEFAULT '',
+      ip TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS moderation_reason TEXT NOT NULL DEFAULT '';
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS ip TEXT NOT NULL DEFAULT '';
+    ALTER TABLE comments ADD COLUMN IF NOT EXISTS user_agent TEXT NOT NULL DEFAULT '';
+    CREATE INDEX IF NOT EXISTS idx_comments_post_status_created ON comments (post_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_comments_status_created ON comments (status, created_at DESC);
   `);
 }
 
@@ -254,6 +271,9 @@ async function seedSettings() {
     custom_css: '',
     taxonomy_categories: JSON.stringify(['建站', '设计', '教程', '随笔']),
     taxonomy_tags: JSON.stringify(['#WordPress', '#全栈', '#部署', '#UI', '#博客', '#Argon']),
+    comment_bad_words: '',
+    comment_blacklist: '',
+    comment_moderation_enabled: 'true',
     module_visibility: JSON.stringify({
       header_nav: true,
       theme_switcher: true,
@@ -424,7 +444,7 @@ export async function getSettingsObject() {
 }
 
 export async function updateSettingsObject(data) {
-  const allowed = ['site_title', 'site_subtitle', 'author_name', 'author_bio', 'author_avatar', 'logo_url', 'logo_text', 'footer_html', 'hero_title', 'hero_text', 'theme_preset', 'layout_mode', 'home_cards', 'site_notice', 'header_nav_links', 'nav_links', 'friend_links', 'project_cards', 'music_playlist', 'license_text', 'video_embed_css', 'custom_css', 'taxonomy_categories', 'taxonomy_tags', 'module_visibility'];
+  const allowed = ['site_title', 'site_subtitle', 'author_name', 'author_bio', 'author_avatar', 'logo_url', 'logo_text', 'footer_html', 'hero_title', 'hero_text', 'theme_preset', 'layout_mode', 'home_cards', 'site_notice', 'header_nav_links', 'nav_links', 'friend_links', 'project_cards', 'music_playlist', 'license_text', 'video_embed_css', 'custom_css', 'taxonomy_categories', 'taxonomy_tags', 'comment_bad_words', 'comment_blacklist', 'comment_moderation_enabled', 'module_visibility'];
   if (Object.prototype.hasOwnProperty.call(data, 'taxonomy_categories')) data.taxonomy_categories = JSON.stringify(normalizeCategoryList(data.taxonomy_categories));
   if (Object.prototype.hasOwnProperty.call(data, 'taxonomy_tags')) data.taxonomy_tags = JSON.stringify(normalizeTagList(data.taxonomy_tags));
   if (hasPostgres) {
@@ -514,14 +534,14 @@ export async function getPostBySlug(slug, includeDraft = false) {
     const post = await pgGet(`SELECT * FROM posts WHERE slug = ? ${includeDraft ? '' : "AND status = 'published'"}`, [slug]);
     if (!post) return null;
     await pgRun('UPDATE posts SET views = views + 1 WHERE id = ?', [post.id]);
-    const comments = await pgAll('SELECT id, name, content, created_at FROM comments WHERE post_id = ? ORDER BY created_at DESC', [post.id]);
+    const comments = await pgAll("SELECT id, name, content, created_at FROM comments WHERE post_id = ? AND status = 'approved' ORDER BY created_at DESC", [post.id]);
     return { ...rowToPost({ ...post, views: Number(post.views || 0) + 1 }), comments };
   }
   const post = store.posts.find(p => p.slug === slug && (includeDraft || p.status === 'published'));
   if (!post) return null;
   post.views = Number(post.views || 0) + 1;
   await saveStore();
-  const comments = store.comments.filter(c => Number(c.post_id) === Number(post.id)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const comments = store.comments.filter(c => Number(c.post_id) === Number(post.id) && (c.status || 'approved') === 'approved').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   return { ...rowToPost(post), comments };
 }
 
@@ -554,18 +574,22 @@ export async function listTaxonomies() {
   };
 }
 
-export async function createComment({ post_id, name, email = '', content }) {
+export async function createComment({ post_id, name, email = '', content, status = 'approved', moderation_reason = '', ip = '', user_agent = '' }) {
+  const safeStatus = ['approved', 'pending', 'spam'].includes(status) ? status : 'approved';
   if (hasPostgres) {
     const post = await pgGet('SELECT id FROM posts WHERE id = ? AND status = ?', [post_id, 'published']);
     if (!post) throw new Error('文章不存在');
-    await pgRun('INSERT INTO comments (post_id, name, email, content, created_at) VALUES (?, ?, ?, ?, ?)', [post_id, name, email, content, nowISO()]);
-    return pgAll('SELECT id, name, content, created_at FROM comments WHERE post_id = ? ORDER BY created_at DESC', [post_id]);
+    await pgRun(
+      'INSERT INTO comments (post_id, name, email, content, status, moderation_reason, ip, user_agent, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [post_id, name, email, content, safeStatus, moderation_reason, ip, user_agent, nowISO()]
+    );
+    return pgAll("SELECT id, name, content, created_at FROM comments WHERE post_id = ? AND status = 'approved' ORDER BY created_at DESC", [post_id]);
   }
   const post = store.posts.find(p => Number(p.id) === Number(post_id) && p.status === 'published');
   if (!post) throw new Error('文章不存在');
-  store.comments.push({ id: store.seq.comments++, post_id: Number(post_id), name, email, content, created_at: nowISO() });
+  store.comments.push({ id: store.seq.comments++, post_id: Number(post_id), name, email, content, status: safeStatus, moderation_reason, ip, user_agent, created_at: nowISO() });
   await saveStore();
-  return store.comments.filter(c => Number(c.post_id) === Number(post_id)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  return store.comments.filter(c => Number(c.post_id) === Number(post_id) && (c.status || 'approved') === 'approved').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 }
 
 export async function findUser(username) {
@@ -773,7 +797,7 @@ export async function listComments({ limit = 300 } = {}) {
   const safeLimit = Math.min(1000, Math.max(1, Number(limit) || 300));
   if (hasPostgres) {
     const rows = await pgAll(`
-      SELECT c.id, c.post_id, c.name, c.email, c.content, c.created_at,
+      SELECT c.id, c.post_id, c.name, c.email, c.content, c.status, c.moderation_reason, c.ip, c.user_agent, c.created_at,
              p.title AS post_title, p.slug AS post_slug
       FROM comments c
       LEFT JOIN posts p ON p.id = c.post_id
@@ -786,6 +810,10 @@ export async function listComments({ limit = 300 } = {}) {
       name: r.name,
       email: r.email || '',
       content: r.content,
+      status: r.status || 'approved',
+      moderation_reason: r.moderation_reason || '',
+      ip: r.ip || '',
+      user_agent: r.user_agent || '',
       created_at: r.created_at,
       post_title: r.post_title || '已删除文章',
       post_slug: r.post_slug || ''
@@ -800,10 +828,28 @@ export async function listComments({ limit = 300 } = {}) {
       return {
         ...c,
         email: c.email || '',
+        status: c.status || 'approved',
+        moderation_reason: c.moderation_reason || '',
+        ip: c.ip || '',
+        user_agent: c.user_agent || '',
         post_title: post?.title || '已删除文章',
         post_slug: post?.slug || ''
       };
     });
+}
+
+export async function updateCommentStatus(id, status) {
+  const safeStatus = ['approved', 'pending', 'spam'].includes(status) ? status : '';
+  if (!safeStatus) throw new Error('评论状态无效');
+  if (hasPostgres) {
+    await pgRun('UPDATE comments SET status = ? WHERE id = ?', [safeStatus, id]);
+  } else {
+    const comment = store.comments.find(c => Number(c.id) === Number(id));
+    if (!comment) throw new Error('评论不存在');
+    comment.status = safeStatus;
+    await saveStore();
+  }
+  return { ok: true, status: safeStatus };
 }
 
 export async function deleteComment(id) {

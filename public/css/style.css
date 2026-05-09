@@ -1395,11 +1395,12 @@ body.theme-bg-flow[data-theme-flow="right"] { animation-name: bgFlowRight; }
 .captcha-answer { margin: 0; }
 .comment-admin-tools {
   display: grid;
-  grid-template-columns: minmax(220px, 1fr) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(130px, auto) auto;
   gap: 14px;
   align-items: center;
   margin: 16px 0;
 }
+.comment-admin-tools select { min-height: 42px; }
 .comment-admin-list { gap: 12px; }
 .admin-comment-row {
   display: grid;
@@ -1419,6 +1420,17 @@ body.theme-bg-flow[data-theme-flow="right"] { animation-name: bgFlowRight; }
   gap: 8px 12px;
   align-items: baseline;
 }
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.comment-status-pending { border-color: color-mix(in srgb, #f59e0b 38%, var(--line)); }
+.comment-status-spam { border-color: color-mix(in srgb, var(--danger) 38%, var(--line)); opacity: .82; }
 @media (max-width: 760px) {
   .captcha-row,
   .comment-admin-tools,

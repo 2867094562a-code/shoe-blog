@@ -27,6 +27,7 @@ import {
   updatePage,
   deletePage,
   deleteComment,
+  updateCommentStatus,
   listComments
 } from './db.js';
 import { uploadImage } from './storage.js';
@@ -160,6 +161,37 @@ function checkCommentRate(req) {
   commentRateMap.set(key, history);
 }
 
+function splitModerationList(value = '') {
+  return String(value || '')
+    .split(/[\n,，]/)
+    .map(v => v.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function clientIp(req) {
+  return String(req.headers['x-forwarded-for'] || req.ip || '')
+    .split(',')[0]
+    .trim();
+}
+
+function includesAny(text = '', words = []) {
+  const body = String(text || '').toLowerCase();
+  return words.find(word => word && body.includes(word)) || '';
+}
+
+function moderateComment({ settings, name, email, content, ip }) {
+  const enabled = String(settings.comment_moderation_enabled ?? 'true') !== 'false';
+  if (!enabled) return { status: 'approved', reason: '' };
+  const badWords = splitModerationList(settings.comment_bad_words);
+  const blacklist = splitModerationList(settings.comment_blacklist);
+  const identity = `${name} ${email} ${ip}`.toLowerCase();
+  const blockedBy = includesAny(identity, blacklist);
+  if (blockedBy) throw new HttpError('评论提交失败，请检查昵称、邮箱或稍后再试', 403);
+  const hit = includesAny(`${name} ${email} ${content}`, badWords);
+  if (hit) return { status: 'pending', reason: `命中违禁词：${hit}` };
+  return { status: 'approved', reason: '' };
+}
+
 app.use(helmet({
   contentSecurityPolicy: false
 }));
@@ -256,11 +288,27 @@ app.post('/api/comments', async (req, res, next) => {
     const email = safeString(req.body.email, 100);
     const content = safeString(req.body.content, 1000);
     const post_id = Number(req.body.post_id);
+    const ip = clientIp(req);
     checkCommentRate(req);
     verifyCaptcha(req.body.captcha_token, req.body.captcha_answer);
     if (!post_id || !name || !content) return res.status(400).json({ error: '昵称和评论内容不能为空' });
-    const comments = await createComment({ post_id, name, email, content });
-    res.json({ comments });
+    const settings = await getSettingsObject();
+    const moderation = moderateComment({ settings, name, email, content, ip });
+    const comments = await createComment({
+      post_id,
+      name,
+      email,
+      content,
+      status: moderation.status,
+      moderation_reason: moderation.reason,
+      ip,
+      user_agent: safeString(req.headers['user-agent'], 300)
+    });
+    res.json({
+      comments,
+      status: moderation.status,
+      message: moderation.status === 'pending' ? '评论已提交，等待站长审核后显示。' : '评论已提交。'
+    });
   } catch (err) { next(err); }
 });
 
@@ -378,6 +426,12 @@ app.get('/api/admin/comments', requireAuth, async (req, res, next) => {
 app.delete('/api/admin/comments/:id', requireAuth, async (req, res, next) => {
   try {
     res.json(await deleteComment(req.params.id));
+  } catch (err) { next(err); }
+});
+
+app.put('/api/admin/comments/:id/status', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await updateCommentStatus(req.params.id, safeString(req.body.status, 20)));
   } catch (err) { next(err); }
 });
 
