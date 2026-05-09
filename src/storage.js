@@ -14,8 +14,7 @@ const IMAGE_MIME_TO_EXT = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/svg+xml': 'svg'
+  'image/gif': 'gif'
 };
 
 function cleanPart(value = '') {
@@ -58,7 +57,7 @@ export function assertImageFile(file) {
     throw err;
   }
   if (!Object.keys(IMAGE_MIME_TO_EXT).includes(file.mimetype)) {
-    const err = new Error('只支持 jpg、png、webp、gif、svg 图片');
+    const err = new Error('只支持 jpg、png、webp、gif 图片');
     err.status = 400;
     throw err;
   }

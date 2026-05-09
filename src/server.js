@@ -35,7 +35,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-only-secret-change-me';
+const DEFAULT_JWT_SECRET = 'dev-only-secret-change-me';
+const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const COOKIE_NAME = 'argon_lite_token';
 const rawAdminPath = String(process.env.ADMIN_PATH || '/console-7f92x').trim();
 const ADMIN_PATH = rawAdminPath.startsWith('/') ? rawAdminPath : `/${rawAdminPath}`;
@@ -44,6 +45,17 @@ const ADMIN_HTML_FILE = path.join(__dirname, '../private/admin.html');
 const DESKTOP_HTML_FILE = path.join(__dirname, '../public/index.html');
 const MOBILE_HTML_FILE = path.join(__dirname, '../public/mobile.html');
 const commentRateMap = new Map();
+
+function validateProductionEnv() {
+  if (process.env.NODE_ENV !== 'production') return;
+  const missing = [];
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === DEFAULT_JWT_SECRET) missing.push('JWT_SECRET');
+  if (!process.env.ADMIN_USERNAME) missing.push('ADMIN_USERNAME');
+  if (!process.env.ADMIN_PASSWORD) missing.push('ADMIN_PASSWORD');
+  if (missing.length) {
+    throw new Error(`生产环境缺少必要配置：${missing.join(', ')}。请在部署平台环境变量中设置后再启动。`);
+  }
+}
 
 class HttpError extends Error {
   constructor(message, status = 400) {
@@ -164,6 +176,18 @@ app.get([ADMIN_PATH, ADMIN_PATH_ALT], (req, res) => {
 
 // 前台入口按 User-Agent 选择桌面模板或手机模板。
 app.get(['/', '/index.html'], serveFrontEntry);
+
+app.use('/css', express.static(path.join(__dirname, '../public/css'), {
+  maxAge: '1h'
+}));
+
+app.use('/js', express.static(path.join(__dirname, '../public/js'), {
+  maxAge: '1h'
+}));
+
+app.use('/uploads', express.static(path.join(__dirname, '../public/uploads'), {
+  maxAge: '30d'
+}));
 
 app.use(express.static(path.join(__dirname, '../public'), {
   maxAge: 0
@@ -371,7 +395,7 @@ app.get('/api/admin/system', requireAuth, async (req, res) => {
       supabase_bucket: process.env.SUPABASE_BUCKET || '',
       max_upload_mb: Number(process.env.MAX_UPLOAD_MB || 5),
       admin_path_configured: ADMIN_PATH,
-      package_runtime: 'Node 20.18.1 + pnpm recommended'
+      package_runtime: 'Node 20.18.1 + npm ci'
     }
   });
 });
@@ -402,6 +426,7 @@ app.use((err, req, res, next) => {
   res.status(status >= 400 && status < 600 ? status : 500).json({ error: err.message || '服务器错误' });
 });
 
+validateProductionEnv();
 await initDb();
 app.listen(PORT, () => {
   console.log(`✅ 网站已运行：http://localhost:${PORT}`);

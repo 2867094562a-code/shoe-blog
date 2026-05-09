@@ -3,13 +3,21 @@ services:
     name: argon-like-blog
     env: node
     plan: free
-    buildCommand: npm install -g pnpm@9.12.3 && pnpm install --no-frozen-lockfile
-    startCommand: node src/server.js
+    buildCommand: npm ci
+    startCommand: npm start
     envVars:
       - key: NODE_VERSION
         value: 20.18.1
       - key: NODE_ENV
         value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: ADMIN_PATH
+        value: /console-7f92x
       - key: PGSSL
         value: true
       - key: MAX_UPLOAD_MB
