@@ -580,7 +580,7 @@ function relatedPostsHtml(post, allPosts = []) {
     .slice(0, 4)
     .map(item => item.post);
   if (!related.length) return '';
-  return `<section class="card related-posts reveal-up in-view"><h3>相关文章</h3><div class="related-grid">${related.map(p => `<a class="related-card" href="${postHref(p.slug)}">${p.cover ? `<img src="${escapeHtml(p.cover)}" alt="${escapeHtml(p.title)}" loading="lazy">` : ''}<b>${escapeHtml(p.title)}</b><small>${escapeHtml(p.category || '未分类')} · ❤ ${Number(p.likes || 0)}</small></a>`).join('')}</div></section>`;
+  return `<section class="card related-posts reveal-up in-view"><h3>相关文章</h3><div class="related-grid">${related.map(p => `<a class="related-card" href="${postHref(p.slug)}"><span class="related-thumb">${p.cover ? `<img src="${escapeHtml(p.cover)}" alt="${escapeHtml(p.title)}" loading="lazy">` : ''}</span><span class="related-info"><b>${escapeHtml(p.title)}</b><small>${escapeHtml(p.category || '未分类')} · ❤ ${Number(p.likes || 0)}</small></span></a>`).join('')}</div></section>`;
 }
 
 async function refreshCommentCaptcha() {
